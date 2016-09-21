@@ -137,7 +137,7 @@ namespace DBBackfill
                 sbWhere.AppendLine(")");
             }
 
-            string orderBy = string.Join(", ", keyColNames.Select(kc => ("SRC." + kc)));
+            string orderBy = string.Join(", ", keyColNames.Select(kc => ("SRC." + kc)).ToArray());
             return string.Format(QryDataFetch, srcTable.FullTableName, sbWhere.ToString(), orderBy);
         }
 
@@ -210,6 +210,27 @@ namespace DBBackfill
                 }
                 BackfillCtl.CloseDb(srcConn); // Close the DB connection
             }
+            return newFKB;
+        }
+
+        /// <summary>
+        /// Create a single column boundary set
+        /// </summary>
+        /// <param name="srcTable">Reference to TableInfo object of the source table</param>
+        /// <param name="keyColName">Key column name</param>
+        /// <param name="minKey">Start value</param>
+        /// <param name="maxKey">Final value</param>
+        /// <returns></returns>
+        public static FetchKeyBoundary CreateFetchKeyBoundary(this TableInfo srcTable, string keyColName, object minKey, object maxKey)
+        {
+            //TODO: Add multi-column key support
+
+            FetchKeyBoundary newFKB = null;
+
+            newFKB = new FetchKeyBoundary(srcTable, new List<string>(){ keyColName });
+            if ((minKey != null) && (minKey.GetType().Name != "DBNull")) newFKB.StartKeyList.Add(minKey);
+            if ((maxKey != null) && (maxKey.GetType().Name != "DBNull")) newFKB.StartKeyList.Add(maxKey);
+
             return newFKB;
         }
 

@@ -84,7 +84,7 @@ namespace DBBackfill
                         string sqlFetchData = string.Format(
                             strFetchSql,
                             batchSize,
-                            string.Join(", ", CopyColNames.Select(ccn => string.Format("SRC.[{0}]", ccn)))
+                            string.Join(", ", CopyColNames.Select(ccn => string.Format("SRC.[{0}]", ccn)).ToArray())
                             ); // Complete the fetch query setup
                         cmdSrcDb.CommandText = sqlFetchData;
                         cmdSrcDb.CommandType = CommandType.Text;
@@ -253,7 +253,7 @@ namespace DBBackfill
                     DstTempFullTableName,
                     TempSchemaName,
                     DstTempTableName,
-                    string.Join(", ", dstKeyNames.Select(cn => string.Format("[{0}]", cn)).ToList()));
+                    string.Join(", ", dstKeyNames.Select(cn => string.Format("[{0}]", cn)).ToArray()));
 
                 using (SqlCommand cmdSch = new SqlCommand(sqlCreateWTab, dstConn))
                 {
@@ -323,9 +323,9 @@ namespace DBBackfill
                                             SELECT @mCount;",
                 DstTable.FullTableName,
                 DstTempFullTableName,
-                string.Join(" AND ", DstKeyNames.Where(kc => (SrcTable[kc].IsComparable)).Select(kc => string.Format("(SRC.{0} = DST.{0})", DstTable[kc].NameQuoted))),
-                string.Join(", ", CopyColNames.Select(dc => SrcTable[dc].NameQuoted).ToList()),
-                string.Join(", ", CopyColNames.Select(sd => string.Format("SRC.{0}", SrcTable[sd].NameQuoted)).ToList()),
+                string.Join(" AND ", DstKeyNames.Where(kc => (SrcTable[kc].IsComparable)).Select(kc => string.Format("(SRC.{0} = DST.{0})", DstTable[kc].NameQuoted)).ToArray()),
+                string.Join(", ", CopyColNames.Select(dc => SrcTable[dc].NameQuoted).ToArray()),
+                string.Join(", ", CopyColNames.Select(sd => string.Format("SRC.{0}", SrcTable[sd].NameQuoted)).ToArray()),
                 (DstTable.HasIdentity) ? "" : "-- ",
                 DstTable.DbName,
                 strMatched

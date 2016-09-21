@@ -2,10 +2,7 @@
 using System.Collections.Generic;
 using System.Data;
 using System.Data.SqlClient;
-using System.Data.SqlTypes;
-using System.Diagnostics.Contracts;
 using System.Linq;
-using System.Reflection.Emit;
 
 
 namespace DBBackfill
@@ -76,6 +73,16 @@ IF EXISTS ( SELECT  *
 
         //  Methods
         //
+        public Publication GetPublication(string pubName)
+        {
+            return this[pubName];
+        }
+
+        public Publication GetPublication(int objectID)
+        {
+            return this[objectID];
+        }
+
         public void AddPublication(Publication newPub)
         {
             _publications.Add(newPub.Name, newPub);
