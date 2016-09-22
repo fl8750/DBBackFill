@@ -159,7 +159,7 @@ namespace DBBackfill
     {
         public static FetchKeyBoundary CreateFetchKeyComplete(this TableInfo srcTable, string keyColName = null)
         {
-            return srcTable.CreateFetchKeyComplete((keyColName == null) ? null : new List<string>{keyColName});
+            return srcTable.CreateFetchKeyComplete((keyColName == null) ? null : keyColName.Split(new char[]{','}).ToList());
         }
 
         public static FetchKeyBoundary CreateFetchKeyComplete(this TableInfo srcTable, List<string> keyColNames)
@@ -168,6 +168,8 @@ namespace DBBackfill
             {
                 keyColNames = srcTable.Where(kc => kc.KeyOrdinal > 0).OrderBy(kc => kc.KeyOrdinal).Select(kc => kc.Name).ToList();
             }
+            
+            //Console.WriteLine("Key Cols: {0} - '{1}'", keyColNames.Count, keyColNames[0]);
             FetchKeyBoundary newFKB = new FetchKeyBoundary(srcTable, keyColNames);
             return newFKB;
         }
