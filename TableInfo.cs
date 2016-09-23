@@ -128,20 +128,17 @@ namespace DBBackfill
             //  Now build a collection of tables and columns
             //            
             string strArticleColInfo = @"
-        USE [{0}]; 
-        WITH TABCNT AS (
-                SELECT sOBJ.[object_id], 
-                       SUM(sdmvPTNS.row_count) AS [RowCount]
-                FROM  sys.objects AS sOBJ
-                      INNER JOIN sys.dm_db_partition_stats AS sdmvPTNS
-                            ON sOBJ.object_id = sdmvPTNS.object_id
-                WHERE 
-                      sOBJ.type = 'U'
-                      AND sOBJ.is_ms_shipped = 0x0
-                      AND sdmvPTNS.index_id < 2
-                GROUP BY
-                      sObj.[object_id]
-                ),
+    USE [{0}]; 
+    WITH    TABCNT
+              AS ( SELECT   sOBJ.[object_id] ,
+                            SUM(sdmvPTNS.row_count) AS [RowCount]
+                   FROM     sys.objects AS sOBJ
+                            INNER JOIN sys.dm_db_partition_stats AS sdmvPTNS ON sOBJ.object_id = sdmvPTNS.object_id
+                   WHERE    ( sOBJ.type = 'U' )
+                            AND ( sOBJ.is_ms_shipped = 0x0 )
+                            AND ( sdmvPTNS.index_id < 2 )
+                   GROUP BY sObj.[object_id]
+                 ),
             IdxInfo
               AS ( SELECT   *
                    FROM     ( SELECT    SCHEMA_NAME(OBJ.schema_id) AS SchemaName ,
@@ -165,7 +162,8 @@ namespace DBBackfill
                             IC.key_ordinal ,
                             IC.index_column_id ,
                             IC.column_id ,
-                            IC.is_descending_key
+                            IC.is_descending_key ,
+						    IC.partition_ordinal
                    FROM     IdxInfo INF
                             INNER JOIN sys.index_columns IC ON ( INF.[object_id] = IC.[object_id] )
                    WHERE    ( IC.key_ordinal <> 0 )
@@ -182,6 +180,7 @@ namespace DBBackfill
                             INF.is_primary_key ,
                             SC.name AS ColName ,
                             CI.key_ordinal ,
+						    CI.partition_ordinal ,
                             CI.index_column_id ,
                             CI.column_id ,
                             CI.is_descending_key
@@ -222,16 +221,20 @@ namespace DBBackfill
                 ISNULL(IDX.is_unique, 0) AS is_unique ,
                 ISNULL(IDX.type_desc, '') AS idx_type ,
                 ISNULL(IDC.key_ordinal, 0) AS key_ordinal ,
-                ISNULL(IDC.is_descending_key, 0) AS is_descending_key
+                ISNULL(IDC.is_descending_key, 0) AS is_descending_key ,
+			    ISNULL(IDC.partition_ordinal, 0) AS partition_ordinal
         FROM    sys.columns SC
                 INNER JOIN sys.types ST ON ( SC.user_type_id = ST.user_type_id )
                 INNER JOIN sys.objects OBJ ON ( SC.[object_id] = OBJ.[object_id] )
-                INNER JOIN TABCNT ON (OBJ.[object_id] = TABCNT.[object_id])
+                INNER JOIN TABCNT ON ( OBJ.[object_id] = TABCNT.[object_id] )
                 LEFT OUTER JOIN IDC ON ( SC.[object_id] = IDC.[object_id] )
                                        AND ( SC.name = IDC.ColName )
                 LEFT OUTER JOIN IDX ON ( SC.[object_id] = IDX.[object_id] )
-        WHERE   ( OBJ.[type] = 'U' )
-        ORDER BY SchemaName, TableName, column_id";
+        WHERE   ( OBJ.[type] = 'U' ) 
+		    --AND ( ISNULL(IDC.partition_ordinal, 0) > 0)
+        ORDER BY SchemaName ,
+                TableName ,
+                column_id";
 
             DataTable dtTblColInfo = new DataTable();
             using (SqlCommand cmdArtcol = new SqlCommand(string.Format(strArticleColInfo, dbName), dbConn))
@@ -256,15 +259,18 @@ namespace DBBackfill
                     new TableColInfo(){
                         Name = (string) cdr["ColName"],
                         Datatype = (string) cdr["Datatype"],
+
                         ID = (int) cdr["column_id"],
+                        KeyOrdinal = (int) (byte) cdr["key_ordinal"],
                         MaxLength = (int) (Int16) (cdr["max_length"] ?? 0),
+                        PartitionOrdinal = (int) (byte) (cdr["partition_ordinal"] ?? 0),
                         Precision = (int) (byte) (cdr["precision"] ?? 0),
                         Scale = (int) (byte) (cdr["scale"] ?? 0),
+
                         IsComputed = (bool) cdr["is_computed"],
                         IsIdentity = (bool) cdr["is_identity"],
                         IsNullable = (bool) cdr["is_nullable"],
                         IsXmlDocument = (bool) cdr["is_xml_document"],
-                        KeyOrdinal = (int) (byte) cdr["key_ordinal"],
                         KeyDescending = (bool) cdr["is_descending_key"]
                     };
                 curTbl.AddColumn(newCol);

@@ -12,60 +12,22 @@ namespace DBBackfill
 
     public class FetchKeyBoundary : FetchKeyBase
     {
-        //public override List<object> FetchNextKeyList(DataRow lastDataRow)
-        //{
-        //    List<object> nxtKeys = new List<object>();
 
-        //    // Capture the next start keys
-        //    //
-        //    List<object> newStartKeys = new List<object>();
-        //    for (int idx = 0; idx < KeyColNames.Count; ++idx)
-        //    {
-        //        newStartKeys.Add(lastDataRow[KeyColNames[idx]]); // Get the column value in the last row
-        //    }
-        //    return nxtKeys;
-        //}
+        private string QryDataFetch = @" 
+    SELECT TOP ({{0}}) {0}
+            {{1}} 
+        FROM {1} SRC
+        {2}
+        {3}; ";
 
         public override List<object> FetchNextKeyList(DataRow lastDataRow)
         {
-            List<object> nextKeys = new List<object>();
-            foreach (string kcName in FKeyColNames)
-            {
-                nextKeys.Add(lastDataRow[kcName]);
-            }
-            return nextKeys;
+            return FKeyColNames.Select(kcName => lastDataRow[kcName]).ToList();
         }
-
-        //public string XmlSavePoint()
-        //{
-        //    object[] aKeys = CurrentKeyList.ToArray();
-
-        //    string xmlOut;
-        //    XmlSerializer serializer = new XmlSerializer(typeof(object[]));
-        //    using (StringWriter writer = new StringWriter())
-        //    {
-        //        serializer.Serialize(writer, aKeys);
-        //        xmlOut = writer.ToString();
-        //    }
-        //    return xmlOut;
-        //}
-
-        //public override void Reset()
-        //{
-        //    CurrentKeyList = StartKeyList;
-        //    base.Reset();
-        //}
-
-        private string QryDataFetch = @" SELECT TOP ({{0}}) WITH TIES
-                                                    {{1}} 
-                                                FROM {0} SRC
-                                                {1}
-                                                ORDER BY {2}; ";
-
 
         public override string GetFetchQuery(TableInfo srcTable, SqlCommand cmdSrcDb, bool firstFetch, List<string> keyColNames, List<object> curKeys)
         {
-            StringBuilder sbWhere = new StringBuilder();
+            StringBuilder sbFetch = new StringBuilder();
 
             int skCnt = curKeys.Count;
             if (skCnt > keyColNames.Count) skCnt = keyColNames.Count;
@@ -73,74 +35,88 @@ namespace DBBackfill
             int ekCnt = EndKeyList.Count;
             if (ekCnt > keyColNames.Count) ekCnt = keyColNames.Count;
 
-            if ((skCnt + ekCnt) > 0) sbWhere.AppendLine("WHERE ");
-
-            if (skCnt > 0)
-            {
-                for (int idx = 0; idx < skCnt; ++idx) // Prepare the start key value parameters
-                {
-                    string pName = string.Format("@sk{0}", idx + 1);
-                    SqlDbType dbType = (SqlDbType) Enum.Parse(typeof (SqlDbType), srcTable[keyColNames[idx]].Datatype, true);
-                    cmdSrcDb.Parameters.Add(new SqlParameter(pName, dbType));
-                    cmdSrcDb.Parameters[pName].Value = curKeys[idx];
-                }
-
-                sbWhere.Append("(");    // Construct the logical clauses to mark the beginning of the fetch range
-                for (int oidx = skCnt; oidx > 0; oidx--)
-                {
-                    sbWhere.Append("(");
-                    for (int iidx = 0; iidx < oidx; ++iidx)
-                    {
-                        sbWhere.AppendFormat("(SRC.{0} {1} @sk{2})",
-                            srcTable[keyColNames[iidx]].NameQuoted,
-                            ((oidx - iidx) > 1)
-                                ? "="
-                                : ((iidx + 1) == skCnt) ? ((firstFetch) ? ">=" : ">") : ">",
-                            (iidx + 1));                     
-                        if ((oidx - iidx) > 1) sbWhere.Append(" AND ");
-                    }
-                    sbWhere.Append(")");
-                    if (oidx > 1) sbWhere.AppendLine(" OR ");
-                }
-                sbWhere.AppendLine(")");
-            }
-
-            //  Construct the end key limits
+            //  Build the front part of the SQL query
             //
-            if (ekCnt > 0)
+            sbFetch.AppendFormat("SELECT TOP ({{0}}) {0} \n", (FlgOrderBy) ? "WITH TIES" : "");
+            sbFetch.AppendFormat("      {{1}} \n");
+            sbFetch.AppendFormat("  FROM {0} SRC \n", srcTable.FullTableName);
+
+            //  Build the WHERE clause
+            //
+            if ((skCnt + ekCnt) > 0) 
             {
-                if (skCnt > 0) sbWhere.AppendLine(" AND "); // Construct the logical clauses to mark the end of the fetch range
+                sbFetch.AppendFormat("  WHERE \n");
 
-                for (int idx = 0; idx < ekCnt; ++idx) // Prepare the start key value parameters
+                if (skCnt > 0)
                 {
-                    string pName = string.Format("@ek{0}", idx + 1);
-                    SqlDbType dbType = (SqlDbType) Enum.Parse(typeof (SqlDbType), srcTable[keyColNames[idx]].Datatype, true);
-                    cmdSrcDb.Parameters.Add(new SqlParameter(pName, dbType));
-                    cmdSrcDb.Parameters[pName].Value = EndKeyList[idx];
-                }
-
-                sbWhere.Append("(");
-                for (int oidx = ekCnt; oidx > 0; oidx--)
-                {
-                    sbWhere.Append("(");
-                    for (int iidx = 0; iidx < oidx; ++iidx)
+                    for (int idx = 0; idx < skCnt; ++idx) // Prepare the start key value parameters
                     {
-                        sbWhere.AppendFormat("(SRC.{0} {1} @ek{2})",
-                            srcTable[keyColNames[iidx]].NameQuoted,
-                            ((oidx - iidx) > 1) ? "=" : ((iidx + 1) == ekCnt) ? "<=" : "<",
-                            (iidx + 1));
-                        if ((oidx - iidx) > 1) sbWhere.Append(" AND ");
+                        string pName = string.Format("@sk{0}", idx + 1);
+                        SqlDbType dbType = (SqlDbType) Enum.Parse(typeof (SqlDbType), srcTable[keyColNames[idx]].Datatype, true);
+                        cmdSrcDb.Parameters.Add(new SqlParameter(pName, dbType));
+                        cmdSrcDb.Parameters[pName].Value = curKeys[idx];
                     }
-                    sbWhere.Append(")");
-                    if (oidx > 1) sbWhere.AppendLine(" OR ");
+
+                    sbFetch.Append("    (");    // Construct the logical clauses to mark the beginning of the fetch range
+                    for (int oidx = skCnt; oidx > 0; oidx--)
+                    {
+                        sbFetch.Append("(");
+                        for (int iidx = 0; iidx < oidx; ++iidx)
+                        {
+                            sbFetch.AppendFormat("(SRC.{0} {1} @sk{2})",
+                                srcTable[keyColNames[iidx]].NameQuoted,
+                                ((oidx - iidx) > 1)
+                                    ? "="
+                                    : ((iidx + 1) == skCnt) ? ((firstFetch) ? ">=" : ">") : ">",
+                                (iidx + 1));                     
+                            if ((oidx - iidx) > 1) sbFetch.Append(" AND ");
+                        }
+                        sbFetch.Append(")");
+                        if (oidx > 1) sbFetch.AppendLine(" OR ");
+                    }
+                    sbFetch.AppendLine(")");
                 }
-                sbWhere.AppendLine(")");
+
+                //  Construct the end key limits
+                //
+                if (ekCnt > 0)
+                {
+                    if (skCnt > 0) sbFetch.AppendLine(" AND "); // Construct the logical clauses to mark the end of the fetch range
+
+                    for (int idx = 0; idx < ekCnt; ++idx) // Prepare the start key value parameters
+                    {
+                        string pName = string.Format("@ek{0}", idx + 1);
+                        SqlDbType dbType = (SqlDbType) Enum.Parse(typeof (SqlDbType), srcTable[keyColNames[idx]].Datatype, true);
+                        cmdSrcDb.Parameters.Add(new SqlParameter(pName, dbType));
+                        cmdSrcDb.Parameters[pName].Value = EndKeyList[idx];
+                    }
+
+                    sbFetch.Append("    (");
+                    for (int oidx = ekCnt; oidx > 0; oidx--)
+                    {
+                        sbFetch.Append("(");
+                        for (int iidx = 0; iidx < oidx; ++iidx)
+                        {
+                            sbFetch.AppendFormat("(SRC.{0} {1} @ek{2})",
+                                srcTable[keyColNames[iidx]].NameQuoted,
+                                ((oidx - iidx) > 1) ? "=" : ((iidx + 1) == ekCnt) ? "<=" : "<",
+                                (iidx + 1));
+                            if ((oidx - iidx) > 1) sbFetch.Append(" AND ");
+                        }
+                        sbFetch.Append(")");
+                        if (oidx > 1) sbFetch.AppendLine(" OR ");
+                    }
+                    sbFetch.AppendLine(")");
+                }
             }
 
-            string orderBy = string.Join(", ", keyColNames.Select(kc => ("SRC." + kc)).ToArray());
-            return string.Format(QryDataFetch, srcTable.FullTableName, sbWhere.ToString(), orderBy);
-        }
+            //  Build the ORDER BY clause
+            //
+            if (FlgOrderBy)
+                sbFetch.AppendFormat("ORDER BY {0}", string.Join(", ", keyColNames.Select(kc => ("SRC." + kc)).ToArray()));
 
+            return sbFetch.ToString();
+        }
 
         //  Constructors
         //
@@ -159,7 +135,7 @@ namespace DBBackfill
     {
         public static FetchKeyBoundary CreateFetchKeyComplete(this TableInfo srcTable, string keyColName = null)
         {
-            return srcTable.CreateFetchKeyComplete((keyColName == null) ? null : keyColName.Split(new char[]{','}).ToList());
+            return srcTable.CreateFetchKeyComplete((keyColName == null) ? null : keyColName.Split(',').ToList());
         }
 
         public static FetchKeyBoundary CreateFetchKeyComplete(this TableInfo srcTable, List<string> keyColNames)
@@ -207,7 +183,7 @@ namespace DBBackfill
                         newFKB = new FetchKeyBoundary(srcTable, new List<string>() { keyColName });
                         if (dtKeys.Rows[0]["MinKey"].GetType().Name != "DBNull") newFKB.StartKeyList.Add(dtKeys.Rows[0]["MinKey"]);
                         if (dtKeys.Rows[0]["MaxKey"].GetType().Name != "DBNull") newFKB.EndKeyList.Add(dtKeys.Rows[0]["MaxKey"]);
-                        newFKB.SourceSql = cmdKeys.CommandText;
+                        newFKB.SqlQuery = cmdKeys.CommandText;
                     }
                 }
                 BackfillCtl.CloseDb(srcConn); // Close the DB connection

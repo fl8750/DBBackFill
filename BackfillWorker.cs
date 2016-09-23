@@ -81,6 +81,8 @@ namespace DBBackfill
                         //  Fetch the next batch of data
                         //
                         string strFetchSql = fkb.GetFetchQuery(SrcTable, cmdSrcDb, (FetchLoopCount == 0), srcKeyNames, currentFKeyList);
+                        //string strFetchSqlOrderBy = string.Format(" ORDER BY {0}", string.Join(", ", srcKeyNames.Select(kc => ("SRC." + kc)).ToArray()));
+
                         string sqlFetchData = string.Format(
                             strFetchSql,
                             batchSize,

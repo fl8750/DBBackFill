@@ -38,6 +38,7 @@ namespace DBBackfill
         public int MaxLength = 0;
         public int Precision = 0;
         public int Scale = 0;
+        public int PartitionOrdinal = 0;
         public bool IsNullable = false;
         public bool IsIdentity = false;
         public bool IsComputed = false;

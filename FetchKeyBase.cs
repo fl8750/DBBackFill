@@ -22,7 +22,8 @@ namespace DBBackfill
         //
         public TableInfo FKeySrcTable { get; protected set; } // Reference to information on the source table 
         public List<string> FKeyColNames { get; protected set; }
-        public string SourceSql = String.Empty;
+        public string SqlQuery = String.Empty;
+        public bool FlgOrderBy = true;
 
         //  Range start and stop limits
         //
