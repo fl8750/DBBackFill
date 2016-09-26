@@ -37,6 +37,7 @@ namespace DBBackfill
         public bool IsPartitioned { get; set; }
         public string PtScheme { get; set; }
         public string PtFunc { get; set; }
+        public TableColInfo PtCol { get; set; }
 
         private TableColInfoList _columns = new TableColInfoList();
 
@@ -208,6 +209,8 @@ namespace DBBackfill
                     _tables.Add(curTbl.ObjectId, curTbl);
                 }
 
+                //  Create the next table column information object
+                //
                 TableColInfo newCol =
                     new TableColInfo(){
                         Name = (string) cdr["ColName"],
@@ -229,14 +232,18 @@ namespace DBBackfill
                         KeyDescending = ((int)cdr["is_descending_key"] != 0)
                     };
 
-                curTbl.AddColumn(newCol);
+                curTbl.AddColumn(newCol); // Add to the column list 
+
                 if ((bool) cdr["is_identity"])
-                    curTbl.HasIdentity = true;
+                    curTbl.HasIdentity = true; // Mark table as having an identity column
+
                 if ((int) cdr["is_partitioned"] != 0)
                 {
-                    curTbl.IsPartitioned = true;
-                    curTbl.PtScheme = (string) cdr["PtScheme"];
-                    curTbl.PtFunc = (string) cdr["PtFunc"];
+                    curTbl.IsPartitioned = true; // Mark table as "partitioned"
+                    curTbl.PtScheme = (string) cdr["PtScheme"]; // Controlling scheme ...
+                    curTbl.PtFunc = (string) cdr["PtFunc"]; // ... and function
+                    if (newCol.IsPsCol)
+                        curTbl.PtCol = newCol; // Save a reference to the partitioning column of this table
                 }
             }
 

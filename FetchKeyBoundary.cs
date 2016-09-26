@@ -133,7 +133,7 @@ namespace DBBackfill
     //  Helper Class -- FetchKeyBoundary
     //
     // ==================================================================================================
-    public static partial class FetchKeyHelpers
+    public static class FetchKeyHelpers
     {
         public static FetchKeyBoundary CreateFetchKeyComplete(this TableInfo srcTable, string keyColName = null)
         {
