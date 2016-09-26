@@ -33,6 +33,11 @@ namespace DBBackfill
 
         public bool HasIdentity { get; internal set; }
 
+        //
+        public bool IsPartitioned { get; set; }
+        public string PtScheme { get; set; }
+        public string PtFunc { get; set; }
+
         private TableColInfoList _columns = new TableColInfoList();
 
         //
@@ -78,6 +83,7 @@ namespace DBBackfill
             ObjectId = objectId;
             RowCount = rowCount;
             HasIdentity = hasIdentity;
+            IsPartitioned = false;
             Locked = true;
         }
 
@@ -129,112 +135,59 @@ namespace DBBackfill
             //            
             string strArticleColInfo = @"
     USE [{0}]; 
-    WITH    TABCNT
-              AS ( SELECT   sOBJ.[object_id] ,
-                            SUM(sdmvPTNS.row_count) AS [RowCount]
-                   FROM     sys.objects AS sOBJ
-                            INNER JOIN sys.dm_db_partition_stats AS sdmvPTNS ON sOBJ.object_id = sdmvPTNS.object_id
-                   WHERE    ( sOBJ.type = 'U' )
-                            AND ( sOBJ.is_ms_shipped = 0x0 )
-                            AND ( sdmvPTNS.index_id < 2 )
-                   GROUP BY sObj.[object_id]
-                 ),
-            IdxInfo
-              AS ( SELECT   *
-                   FROM     ( SELECT    SCHEMA_NAME(OBJ.schema_id) AS SchemaName ,
-                                        OBJ.Name AS TableName ,
-                                        IDX.name AS IndexName ,
-                                        OBJ.[object_id] ,
-                                        IDX.index_id ,
-                                        IDX.type_desc ,
-                                        IDX.is_unique ,
-                                        IDX.is_primary_key ,
-                                        ROW_NUMBER() OVER ( PARTITION BY IDX.[object_id] ORDER BY IDX.is_unique DESC, IDX.index_id ) AS IndexPriority
-                              FROM      sys.objects OBJ
-                                        INNER JOIN sys.indexes IDX ON ( OBJ.[object_id] = IDX.[object_id] )
-                              WHERE     ( OBJ.[type] = 'U' )
-                            ) IINF
-                   WHERE    IINF.IndexPriority = 1
-                 ),
-            ColInfo
-              AS ( SELECT   INF.[object_id] ,
-                            INF.index_id ,
-                            IC.key_ordinal ,
-                            IC.index_column_id ,
-                            IC.column_id ,
-                            IC.is_descending_key ,
-						    IC.partition_ordinal
-                   FROM     IdxInfo INF
-                            INNER JOIN sys.index_columns IC ON ( INF.[object_id] = IC.[object_id] )
-                   WHERE    ( IC.key_ordinal <> 0 )
-                            AND ( INF.index_id = IC.index_id )
-                 ),
-            IDC
-              AS ( SELECT   INF.SchemaName ,
-                            INF.TableName ,
-                            INF.IndexName ,
-                            INF.[object_id] ,
-                            INF.index_id ,
-                            INF.type_desc ,
-                            INF.is_unique ,
-                            INF.is_primary_key ,
-                            SC.name AS ColName ,
-                            CI.key_ordinal ,
-						    CI.partition_ordinal ,
-                            CI.index_column_id ,
-                            CI.column_id ,
-                            CI.is_descending_key
-                   FROM     IdxInfo INF
-                            INNER JOIN ColInfo CI ON ( INF.[object_id] = CI.[object_id] )
-                                                     AND ( INF.index_id = CI.index_id )
-                            INNER JOIN sys.columns SC ON ( INF.[object_id] = SC.[object_id] )
-                                                         AND ( SC.column_id = CI.column_id )
-                 ),
-            IDX
-              AS ( SELECT   IDC.[object_id] ,
-                            IDC.IndexName ,
-                            MAX(IDC.index_id) AS index_id ,
-                            MAX(IDC.type_desc) AS type_desc ,
-                            MAX(CASE is_unique
-                                  WHEN 0 THEN 0
-                                  ELSE 1
-                                END) AS is_unique
-                   FROM     IDC
-                   GROUP BY IDC.[object_id] ,
-                            IDC.IndexName
-                 )
-        SELECT  OBJ.[object_id] ,
-                SCHEMA_NAME(OBJ.schema_id) AS SchemaName ,
-                OBJ.name AS TableName ,
-                TABCNT.[RowCount] ,
-                SC.name AS ColName ,
-                ST.name AS [Datatype] ,
-                SC.column_id ,
-                SC.is_xml_document ,
-                SC.max_length ,
-                SC.[precision] ,
-                SC.[scale] ,
-                SC.is_nullable ,
-                SC.is_identity ,
-                SC.is_computed ,
-                ISNULL(IDX.IndexName, '--') AS IndexName ,
-                ISNULL(IDX.is_unique, 0) AS is_unique ,
-                ISNULL(IDX.type_desc, '') AS idx_type ,
-                ISNULL(IDC.key_ordinal, 0) AS key_ordinal ,
-                ISNULL(IDC.is_descending_key, 0) AS is_descending_key ,
-			    ISNULL(IDC.partition_ordinal, 0) AS partition_ordinal
-        FROM    sys.columns SC
-                INNER JOIN sys.types ST ON ( SC.user_type_id = ST.user_type_id )
-                INNER JOIN sys.objects OBJ ON ( SC.[object_id] = OBJ.[object_id] )
-                INNER JOIN TABCNT ON ( OBJ.[object_id] = TABCNT.[object_id] )
-                LEFT OUTER JOIN IDC ON ( SC.[object_id] = IDC.[object_id] )
-                                       AND ( SC.name = IDC.ColName )
-                LEFT OUTER JOIN IDX ON ( SC.[object_id] = IDX.[object_id] )
-        WHERE   ( OBJ.[type] = 'U' ) 
-		    --AND ( ISNULL(IDC.partition_ordinal, 0) > 0)
-        ORDER BY SchemaName ,
-                TableName ,
-                column_id";
+    WITH    IDXC
+          AS ( SELECT   *
+               FROM     ( SELECT    IDX.[object_id] ,
+                                    IDX.index_id ,
+                                    IDX.is_unique ,
+                                    IDC.column_id ,
+                                    IDC.key_ordinal ,
+                                    IDC.is_descending_key ,
+                                    IDC.partition_ordinal ,
+                                    DENSE_RANK() OVER ( PARTITION BY IDC.[object_id] ORDER BY IDX.is_unique DESC, IDX.index_id ) AS IndexPriority
+                          FROM      sys.indexes IDX
+                                    INNER JOIN sys.index_columns IDC ON ( IDX.[object_id] = IDC.[object_id] )
+                                                                        AND ( IDX.[index_id] = IDC.[index_id] )
+                        ) IDXC2
+               WHERE    ( IDXC2.IndexPriority = 1 )
+             )
+         SELECT   TAB.[object_id] ,
+                        TAB.[schema_id] ,
+                        SCH.name AS SchemaName ,
+                        TAB.name AS TableName ,
+                        IDX.[type] AS index_type ,
+                        IC.[name] AS ColName ,
+                        IC.column_id ,
+                        TYP.[name] AS DataType ,
+                        IC.max_length ,
+                        IC.[precision] ,
+                        IC.[scale] ,
+                        IC.is_xml_document ,
+                        IC.is_nullable ,
+                        IC.is_identity ,
+                        IC.is_computed ,
+                        COALESCE(IDXC.key_ordinal, 0) AS key_ordinal ,
+                        COALESCE(IDXC.is_descending_key, 0) AS is_descending_key ,
+                        MAX(COALESCE(IDXC.partition_ordinal, 0)) OVER ( PARTITION BY TAB.[object_id] ) AS is_partitioned ,
+                        COALESCE(IDXC.partition_ordinal, 0) AS partition_ordinal ,
+                        COALESCE(PS.[name], '') AS PtScheme ,
+                        COALESCE(PF.[name], '') AS PtFunc
+               FROM     sys.tables TAB
+                        INNER JOIN sys.schemas SCH ON ( TAB.[schema_id] = SCH.[schema_id] )
+                        INNER JOIN sys.indexes IDX ON ( TAB.[object_id] = IDX.[object_id] )
+                        INNER JOIN sys.columns IC ON ( TAB.[object_id] = IC.[object_id] )
+                        INNER JOIN sys.types TYP ON ( IC.user_type_id = TYP.user_type_id )
+                        LEFT OUTER JOIN /* sys.index_columns */ IDXC ON ( IDX.[object_id] = IDXC.[object_id] )
+                                                                        AND ( IDX.index_id = IDXC.index_id )
+                                                                        AND ( IC.column_id = IDXC.column_id )
+                        LEFT JOIN ( sys.partition_schemes PS
+                                    INNER JOIN sys.Partition_functions PF ON ( PS.function_id = PF.function_id )
+                                  ) ON ( IDX.data_space_id = PS.data_space_id )
+               WHERE    ( TAB.is_ms_shipped = 0 )
+                        AND ( IDX.[type] IN ( 0, 1 ) )
+               ORDER BY SchemaName ,
+                        TableName ,
+                        column_id";
 
             DataTable dtTblColInfo = new DataTable();
             using (SqlCommand cmdArtcol = new SqlCommand(string.Format(strArticleColInfo, dbName), dbConn))
@@ -251,7 +204,7 @@ namespace DBBackfill
                 TableInfo curTbl = this[schemaName, tableName];
                 if (curTbl == null)
                 {
-                    curTbl = new TableInfo(dbConn.DataSource, dbName, schemaName, tableName, (int) cdr["object_id"], (Int64) cdr["RowCount"]);
+                    curTbl = new TableInfo(dbConn.DataSource, dbName, schemaName, tableName, (int) cdr["object_id"], 0 /*(Int64) cdr["RowCount"]*/);
                     _tables.Add(curTbl.ObjectId, curTbl);
                 }
 
@@ -260,10 +213,12 @@ namespace DBBackfill
                         Name = (string) cdr["ColName"],
                         Datatype = (string) cdr["Datatype"],
 
+                        IsPsCol = ((int)cdr["partition_ordinal"]) > 0,
+
                         ID = (int) cdr["column_id"],
-                        KeyOrdinal = (int) (byte) cdr["key_ordinal"],
+                        KeyOrdinal = (int) cdr["key_ordinal"],
                         MaxLength = (int) (Int16) (cdr["max_length"] ?? 0),
-                        PartitionOrdinal = (int) (byte) (cdr["partition_ordinal"] ?? 0),
+                        PartitionOrdinal = (int) (cdr["partition_ordinal"] ?? 0),
                         Precision = (int) (byte) (cdr["precision"] ?? 0),
                         Scale = (int) (byte) (cdr["scale"] ?? 0),
 
@@ -271,11 +226,18 @@ namespace DBBackfill
                         IsIdentity = (bool) cdr["is_identity"],
                         IsNullable = (bool) cdr["is_nullable"],
                         IsXmlDocument = (bool) cdr["is_xml_document"],
-                        KeyDescending = (bool) cdr["is_descending_key"]
+                        KeyDescending = ((int)cdr["is_descending_key"] != 0)
                     };
+
                 curTbl.AddColumn(newCol);
                 if ((bool) cdr["is_identity"])
                     curTbl.HasIdentity = true;
+                if ((int) cdr["is_partitioned"] != 0)
+                {
+                    curTbl.IsPartitioned = true;
+                    curTbl.PtScheme = (string) cdr["PtScheme"];
+                    curTbl.PtFunc = (string) cdr["PtFunc"];
+                }
             }
 
         }

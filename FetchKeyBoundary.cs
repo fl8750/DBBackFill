@@ -9,16 +9,18 @@ using System.Xml.Serialization;
 
 namespace DBBackfill
 {
-
+    /// <summary>
+    /// FetchKeyBoundary will return source rouws whose keys are between the lower and upper limits contained in the instance.
+    /// </summary>
     public class FetchKeyBoundary : FetchKeyBase
     {
 
-        private string QryDataFetch = @" 
-    SELECT TOP ({{0}}) {0}
-            {{1}} 
-        FROM {1} SRC
-        {2}
-        {3}; ";
+//        private string QryDataFetch = @" 
+//    SELECT TOP ({{0}}) {0}
+//            {{1}} 
+//        FROM {1} SRC
+//        {2}
+//        {3}; ";
 
         public override List<object> FetchNextKeyList(DataRow lastDataRow)
         {
