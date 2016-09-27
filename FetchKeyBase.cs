@@ -13,36 +13,34 @@ namespace DBBackfill
         //
         public string Name { get; protected set; } //  Name of this FetchKey
 
-        public bool IsValid // True if actual keys fetched
+        public bool IsValid
         {
-            get { return ((StartKeyList.Count > 0) && (EndKeyList.Count > 0)); }
+            get { return ((StartKeyList.Count > 0) && (EndKeyList.Count > 0)); } // True if actual keys fetched
         }
 
         //  Source Table info
         //
         public TableInfo FKeySrcTable { get; protected set; } // Reference to information on the source table 
         public List<string> FKeyColNames { get; protected set; }
-        public string SqlQuery = String.Empty;
-        public bool FlgOrderBy = true;
 
-        //  Range start and stop limits
+        //  Boolean properties
         //
-        private List<object> _startKeyList = new List<object>();
-        private List<object> _endKeyList = new List<object>();
+        public bool FlgOrderBy = true;
+        public bool FlgSelectByPartition = false; // If true, Fetch using partition number as first key
 
-        public List<object> StartKeyList
-        {
-            get { return _startKeyList; }
-        }
+        //  Range start and stop limit lists
+        //
+        public int PartitionIdx = 0; // Current partition number
 
-        public List<object> EndKeyList
-        {
-            get { return _endKeyList; }
-        }
+        public List<object> StartKeyList { get; private set; }
+        public List<object> EndKeyList { get; private set; }
+
+        public List<object> StartKeys_orig { get; private set; }
+        public List<object> EndKeys_orig { get; private set; }
 
         //  Methods
         //
-        public virtual string GetFetchQuery(TableInfo srcTable, SqlCommand cmdSrcDb, bool firstFetch, List<string> keyColNames, List<object> curKeys)
+        public virtual string GetFetchQuery(TableInfo srcTable, SqlCommand cmdSrcDb, int partNumber, int fetchCnt, List<string> keyColNames, List<object> curKeys)
         {
             throw new ApplicationException("Not Implemented!");
         }
@@ -60,6 +58,9 @@ namespace DBBackfill
         {
             FKeySrcTable = srcTable;
             FKeyColNames = keyColNames;
+
+            StartKeyList = new List<object>(); // Initialize the start/end key lists
+            EndKeyList = new List<object>();
         }
 
     }

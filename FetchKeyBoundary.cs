@@ -15,19 +15,12 @@ namespace DBBackfill
     public class FetchKeyBoundary : FetchKeyBase
     {
 
-//        private string QryDataFetch = @" 
-//    SELECT TOP ({{0}}) {0}
-//            {{1}} 
-//        FROM {1} SRC
-//        {2}
-//        {3}; ";
-
         public override List<object> FetchNextKeyList(DataRow lastDataRow)
         {
             return FKeyColNames.Select(kcName => lastDataRow[kcName]).ToList();
         }
 
-        public override string GetFetchQuery(TableInfo srcTable, SqlCommand cmdSrcDb, bool firstFetch, List<string> keyColNames, List<object> curKeys)
+        public override string GetFetchQuery(TableInfo srcTable, SqlCommand cmdSrcDb, int partNumber, int fetchCnt, List<string> keyColNames, List<object> curKeys)
         {
             StringBuilder sbFetch = new StringBuilder();
 
@@ -45,12 +38,24 @@ namespace DBBackfill
 
             //  Build the WHERE clause
             //
-            if ((skCnt + ekCnt) > 0) 
+            bool flgNeedAnd = false;
+            if (((skCnt + ekCnt) > 0) || (FlgSelectByPartition))
             {
                 sbFetch.AppendFormat("  WHERE \n");
 
+                //  If required, fetch rows from each partition individually (performance)
+                //
+                if (FlgSelectByPartition)
+                {
+                    sbFetch.AppendFormat("    ($PARTITION.[{0}]({1}) = {2}) \n", srcTable.PtFunc, srcTable.PtCol.NameQuoted, partNumber);
+                    flgNeedAnd = true;  // Insert the partition number to be queried
+                }
+
+                //  Assemble start key boolean expression
+                //
                 if (skCnt > 0)
                 {
+                    if (flgNeedAnd) sbFetch.AppendLine(" AND "); // Connect the expression using an AND
                     for (int idx = 0; idx < skCnt; ++idx) // Prepare the start key value parameters
                     {
                         string pName = string.Format("@sk{0}", idx + 1);
@@ -69,7 +74,7 @@ namespace DBBackfill
                                 srcTable[keyColNames[iidx]].NameQuoted,
                                 ((oidx - iidx) > 1)
                                     ? "="
-                                    : ((iidx + 1) == skCnt) ? ((firstFetch) ? ">=" : ">") : ">",
+                                    : ((iidx + 1) == skCnt) ? ((fetchCnt==0) ? ">=" : ">") : ">",
                                 (iidx + 1));                     
                             if ((oidx - iidx) > 1) sbFetch.Append(" AND ");
                         }
@@ -77,13 +82,14 @@ namespace DBBackfill
                         if (oidx > 1) sbFetch.AppendLine(" OR ");
                     }
                     sbFetch.AppendLine(")");
+                    flgNeedAnd = true;
                 }
 
-                //  Construct the end key limits
+                //  Construct the end key limit boolean expression
                 //
                 if (ekCnt > 0)
                 {
-                    if (skCnt > 0) sbFetch.AppendLine(" AND "); // Construct the logical clauses to mark the end of the fetch range
+                    if (flgNeedAnd) sbFetch.AppendLine(" AND "); // Construct the logical clauses to mark the end of the fetch range
 
                     for (int idx = 0; idx < ekCnt; ++idx) // Prepare the start key value parameters
                     {
@@ -114,8 +120,7 @@ namespace DBBackfill
 
             //  Build the ORDER BY clause
             //
-            if (FlgOrderBy)
-                sbFetch.AppendFormat("ORDER BY {0}", string.Join(", ", keyColNames.Select(kc => ("SRC." + kc)).ToArray()));
+            sbFetch.AppendFormat("  ORDER BY {0} \n", string.Join(", ", keyColNames.Select(ccn => string.Format("SRC.[{0}]", ccn)).ToArray()));
 
             return sbFetch.ToString();
         }
@@ -149,6 +154,14 @@ namespace DBBackfill
             
             //Console.WriteLine("Key Cols: {0} - '{1}'", keyColNames.Count, keyColNames[0]);
             FetchKeyBoundary newFKB = new FetchKeyBoundary(srcTable, keyColNames);
+
+            //  Check for any partitioning performance problems
+            //
+            if ((srcTable.IsPartitioned) && (srcTable.PtCol.ID != srcTable[keyColNames[0]].ID))
+            {
+                newFKB.FlgSelectByPartition = true;
+            }
+
             return newFKB;
         }
 
@@ -185,7 +198,7 @@ namespace DBBackfill
                         newFKB = new FetchKeyBoundary(srcTable, new List<string>() { keyColName });
                         if (dtKeys.Rows[0]["MinKey"].GetType().Name != "DBNull") newFKB.StartKeyList.Add(dtKeys.Rows[0]["MinKey"]);
                         if (dtKeys.Rows[0]["MaxKey"].GetType().Name != "DBNull") newFKB.EndKeyList.Add(dtKeys.Rows[0]["MaxKey"]);
-                        newFKB.SqlQuery = cmdKeys.CommandText;
+                        //newFKB.SqlQuery = cmdKeys.CommandText;
                     }
                 }
                 BackfillCtl.CloseDb(srcConn); // Close the DB connection

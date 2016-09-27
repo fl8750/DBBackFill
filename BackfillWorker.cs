@@ -11,6 +11,26 @@ namespace DBBackfill
 
     public partial class BackfillContext
     {
+        private string _sqlPartitionSizes = @"
+                SELECT  SCH.name AS SchemaName ,
+                        TAB.name AS TableName ,
+                        SUM(PT.[rows]) OVER ( PARTITION BY PT.[object_id] ) AS TotalRows ,
+                        PT.partition_number ,
+                        PT.[rows]
+                FROM    sys.tables TAB
+                        INNER JOIN sys.schemas SCH ON ( TAB.[schema_id] = SCH.[schema_id] )
+                        INNER JOIN sys.indexes IDX ON ( TAB.[object_id] = IDX.[object_id] )
+                        INNER JOIN sys.partitions PT ON ( TAB.[object_id] = PT.[object_id] )
+                                                        AND ( IDX.index_id = PT.index_id )
+                WHERE   ( SCH.name = '{0}' )
+                        AND ( TAB.name = '{1}' )
+                        AND ( IDX.index_id IN ( 0, 1 ) )
+                        AND ( PT.[rows] > 0 )
+                ORDER BY SchemaName ,
+                        TableName ,
+                        partition_number";
+
+
         //  Worker properties
         //
         public void BackfillData(FetchKeyBoundary fkb,
@@ -19,6 +39,8 @@ namespace DBBackfill
                                  List<string> dstKeyNames = null
                                  )
         {
+            Dictionary<int, Int64> PartSizes = new Dictionary<int, Int64>();
+
             //  Prepare the list of fetch key columns and merge key columns
             //
             if ((srcKeyNames == null) || (srcKeyNames.Count < 1))
@@ -37,145 +59,185 @@ namespace DBBackfill
             SqlConnection srcConn = BackfillCtl.OpenDB(SrcTable.InstanceName, SrcTable.DbName);
             SqlConnection dstConn = BackfillCtl.OpenDB(DstTable.InstanceName, DstTable.DbName);
 
+            //  Main code section -- start of the TRY / CATCH
+            //
             try
             {
-                BkfCtrl.DebugOutput(string.Format("Backfill Start [{0}].[{1}].{2} --> [{3}].[{4}].{5}\n      Rows: {7:#,##0}  BatchChunkSize: {6:#,##0}",
+                //  Start 
+                BkfCtrl.DebugOutput(string.Format("Backfill Start [{0}].[{1}].{2} --> [{3}].[{4}].{5}\n",
                         SrcTable.InstanceName,
                         SrcTable.DbName,
                         SrcTable.FullTableName,
                         DstTable.InstanceName,
                         DstTable.DbName,
-                        DstTable.FullTableName,
-                        batchSize, 
-                        DstTable.RowCount
+                        DstTable.FullTableName
                        ));
+
+                //  Get the partition sizing info if "partition selection" is required
+                //
+                //if (fkb.FlgSelectByPartition)
+                //{
+                    using (SqlCommand cmdPtSz = new SqlCommand(string.Format(_sqlPartitionSizes, SrcTable.SchemaName, SrcTable.TableName), srcConn)) // Source database command
+                    {
+                        cmdPtSz.CommandType = CommandType.Text;
+                        cmdPtSz.CommandTimeout = 600;
+                        using (SqlDataReader srcPtRdr = cmdPtSz.ExecuteReader()) // Fetch data into a data reader
+                        {
+                            using (DataTable srcDt = new DataTable())
+                            {
+                                srcDt.Load(srcPtRdr); // Load the data into a DataTable
+                                PartSizes = srcDt.AsEnumerable().Select(p =>
+                                    new{
+                                        PartNo = (int) p["partition_number"],
+                                        Rows = (Int64) p["Rows"]
+                                    }).ToDictionary(pt => pt.PartNo, pt => pt.Rows);
+                                SrcTable.RowCount = (Int64) srcDt.Rows[0]["TotalRows"];
+                            }
+                        }
+                    }
+                //}
+
+                //  Show the rowcount
+                BkfCtrl.DebugOutput(string.Format("      Rows: {0:#,##0}  BatchChunkSize: {1:#,##0}",
+                        DstTable.RowCount,
+                        batchSize
+                        ));
 
                 PrepareWorker(dstConn, dstKeyNames); // Setup the needed SQL environment
 
                 //  Reset data pump loop counters
                 //
-                FetchLoopCount = 0; // Number of completed fetchs
                 FetchRowCount = 0; // Total number of rows feched
                 MergeRowCount = 0; // Total number of rows inserted into the dest table
 
-                //  
-                //  Setup the initial key value list
-                //
-                List<object> currentFKeyList = new List<object>();
-                for (int idx = 0; (idx < fkb.StartKeyList.Count) && (idx < srcKeyNames.Count); idx++)
-                {
-                    currentFKeyList.Add(fkb.StartKeyList[idx]); // Copy a key value
-                }
 
+                //  Partition Loop -- Once per partition
                 //
-                //  Main Data Pump loop
-                //
-                while (true)
+                List<int> ptNumbers = PartSizes.Keys.OrderBy(p => p).ToList();
+
+                for (int ptIdx = 0; ptIdx < ((fkb.FlgSelectByPartition) ? ptNumbers.Count : 1); ptIdx++)
                 {
-                    DataTable srcDt;
-                    int curFetchCount;
-                    int curMergeCount;
-                    List<object> nextFKeyList;
-                    using (SqlCommand cmdSrcDb = new SqlCommand("", srcConn)) // Source database command
+                    //  
+                    //  Setup the initial key value list
+                    //
+                    List<object> currentFKeyList = new List<object>();
+                    for (int idx = 0; (idx < fkb.StartKeyList.Count) && (idx < srcKeyNames.Count); idx++)
                     {
-                        //  Fetch the next batch of data
-                        //
-                        string strFetchSql = fkb.GetFetchQuery(SrcTable, cmdSrcDb, (FetchLoopCount == 0), srcKeyNames, currentFKeyList);
-                        //string strFetchSqlOrderBy = string.Format(" ORDER BY {0}", string.Join(", ", srcKeyNames.Select(kc => ("SRC." + kc)).ToArray()));
-
-                        string sqlFetchData = string.Format(
-                            strFetchSql,
-                            batchSize,
-                            string.Join(", ", CopyColNames.Select(ccn => string.Format("SRC.[{0}]", ccn)).ToArray())
-                            ); // Complete the fetch query setup
-                        cmdSrcDb.CommandText = sqlFetchData;
-                        cmdSrcDb.CommandType = CommandType.Text;
-
-                        //  Fetch the next group of data rows from the source table
-                        //
-                        cmdSrcDb.CommandTimeout = 600;
-                        using (SqlDataReader srcRdr = cmdSrcDb.ExecuteReader()) // Fetch data into a data reader
-                        {
-                            srcDt = new DataTable();
-                            srcDt.Load(srcRdr); // Load the data into a DataTable
-                            srcRdr.Close(); // Close the reader
-                        }
-
-                        curFetchCount = srcDt.Rows.Count;
-                        FetchRowCount += curFetchCount;
-                        if (curFetchCount <= 0) break; // Nothing fetched, exit the data pump loop
-                        ++FetchLoopCount;
-
-                        nextFKeyList = fkb.FetchNextKeyList(srcDt.Rows[curFetchCount - 1]);
+                        currentFKeyList.Add(fkb.StartKeyList[idx]); // Copy a key value
                     }
+                    FetchLoopCount = 0; // Number of completed fetchs
 
-                    //  Create a transaction object  - Protect the bulk import, merge and truncate statement in a transaction
                     //
-                    SqlTransaction trnMerge = dstConn.BeginTransaction();
-
-                    //  Setup for the SqlBulk Insert to the destination temp table
+                    //  Main Data Pump loop
                     //
-                    SqlBulkCopyOptions bcpyOpts = (DstTable.HasIdentity)
-                        ? (SqlBulkCopyOptions.KeepIdentity | SqlBulkCopyOptions.KeepNulls)
-                        : SqlBulkCopyOptions.KeepNulls;
-                    using (SqlBulkCopy bulkCopy = new SqlBulkCopy(dstConn, bcpyOpts, trnMerge))
+                    while (true)
                     {
-                        try
+                        DataTable srcDt;
+                        int curFetchCount;
+                        int curMergeCount;
+                        List<object> nextFKeyList;
+                        using (SqlCommand cmdSrcDb = new SqlCommand("", srcConn)) // Source database command
                         {
-                            bulkCopy.BulkCopyTimeout = 600;
-                            bulkCopy.DestinationTableName = DstTempFullTableName;
-
-                            // Setup explicit column mapping to avoid any problem from the default mapping behavior
+                            //  Fetch the next batch of data
                             //
-                            foreach (string ccn in CopyColNames)
+                            string strFetchSql = fkb.GetFetchQuery(SrcTable, cmdSrcDb, ptNumbers[ptIdx], FetchLoopCount, srcKeyNames, currentFKeyList);
+                            //string strFetchSqlOrderBy = string.Format(" ORDER BY {0}", string.Join(", ", srcKeyNames.Select(kc => ("SRC." + kc)).ToArray()));
+
+                            string sqlFetchData = string.Format(
+                                strFetchSql,
+                                batchSize,
+                                string.Join(", \n       ", CopyColNames.Select(ccn => string.Format("SRC.[{0}]", ccn)).ToArray())
+                                ); // Complete the fetch query setup
+                            cmdSrcDb.CommandText = sqlFetchData;
+                            cmdSrcDb.CommandType = CommandType.Text;
+
+                            //  Fetch the next group of data rows from the source table
+                            //
+                            cmdSrcDb.CommandTimeout = 600;
+                            using (SqlDataReader srcRdr = cmdSrcDb.ExecuteReader()) // Fetch data into a data reader
                             {
-                                TableColInfo tci = DstTable[ccn];
-                                if (tci.IsIncluded)
-                                {
-                                    SqlBulkCopyColumnMapping newCMap = new SqlBulkCopyColumnMapping(tci.Name, tci.Name);
-                                    bulkCopy.ColumnMappings.Add(newCMap);
-                                }
+                                srcDt = new DataTable();
+                                srcDt.Load(srcRdr); // Load the data into a DataTable
+                                srcRdr.Close(); // Close the reader
                             }
-                            bulkCopy.WriteToServer(srcDt); // Write from the source to the destination.
+
+                            curFetchCount = srcDt.Rows.Count;
+                            FetchRowCount += curFetchCount;
+                            if (curFetchCount <= 0) break; // Nothing fetched, exit the data pump loop
+                            ++FetchLoopCount;
+
+                            nextFKeyList = fkb.FetchNextKeyList(srcDt.Rows[curFetchCount - 1]);
                         }
-                        catch (Exception ex)
+
+                        //  Create a transaction object  - Protect the bulk import, merge and truncate statement in a transaction
+                        //
+                        SqlTransaction trnMerge = dstConn.BeginTransaction();
+
+                        //  Setup for the SqlBulk Insert to the destination temp table
+                        //
+                        SqlBulkCopyOptions bcpyOpts = (DstTable.HasIdentity)
+                            ? (SqlBulkCopyOptions.KeepIdentity | SqlBulkCopyOptions.KeepNulls)
+                            : SqlBulkCopyOptions.KeepNulls;
+                        using (SqlBulkCopy bulkCopy = new SqlBulkCopy(dstConn, bcpyOpts, trnMerge))
                         {
-                            Console.WriteLine(ex.Message);
-                            throw;
+                            try
+                            {
+                                bulkCopy.BulkCopyTimeout = 600;
+                                bulkCopy.DestinationTableName = DstTempFullTableName;
+
+                                // Setup explicit column mapping to avoid any problem from the default mapping behavior
+                                //
+                                foreach (string ccn in CopyColNames)
+                                {
+                                    TableColInfo tci = DstTable[ccn];
+                                    if (tci.IsIncluded)
+                                    {
+                                        SqlBulkCopyColumnMapping newCMap = new SqlBulkCopyColumnMapping(tci.Name, tci.Name);
+                                        bulkCopy.ColumnMappings.Add(newCMap);
+                                    }
+                                }
+                                bulkCopy.WriteToServer(srcDt); // Write from the source to the destination.
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine(ex.Message);
+                                throw;
+                            }
+                            finally
+                            {
+                                srcDt.Clear();
+                            }
                         }
-                        finally
+
+                        //  Now merge the temp table into the final destination table
+                        //
+                        using (SqlCommand cmdDstMerge = new SqlCommand(QryDataMerge, dstConn, trnMerge)) //  Destination datbase connection
                         {
-                            srcDt.Clear();
+                            cmdDstMerge.CommandTimeout = 600;
+                            curMergeCount = (int) cmdDstMerge.ExecuteScalar();
+                            MergeRowCount += curMergeCount;
                         }
-                    }
 
-                    //  Now merge the temp table into the final destination table
-                    //
-                    using (SqlCommand cmdDstMerge = new SqlCommand(QryDataMerge, dstConn, trnMerge)) //  Destination datbase connection
-                    {
-                        cmdDstMerge.CommandTimeout = 600;
-                        curMergeCount = (int) cmdDstMerge.ExecuteScalar();
-                        MergeRowCount += curMergeCount;
-                    }
+                        //  Last step -- write a progress record for restart purposes
+                        //
+                        if (BkfCtrl.Debug > 0)
+                        {
+                            BkfCtrl.DebugOutput(string.Format("-- [{7}:{8}] F:{0:#,##0}/{1:#,##0}/{2:#,##0} M:{3:#,##0}/{4:#,##0} {5}/{6}",
+                                curFetchCount,
+                                FetchRowCount,
+                                DstTable.RowCount,
+                                curMergeCount,
+                                MergeRowCount,
+                                ((currentFKeyList != null) && (currentFKeyList.Count > 0)) ? currentFKeyList[0].ToString() : "---",
+                                ((fkb.EndKeyList != null) && (fkb.EndKeyList.Count > 0)) ? fkb.EndKeyList[0].ToString() : "---",
+                                ptNumbers[ptIdx],
+                                FetchLoopCount
+                                ));
+                        }
 
-                    //  Last step -- write a progress record for restart purposes
-                    //
-                    if (BkfCtrl.Debug > 0)
-                    {
-                        BkfCtrl.DebugOutput(string.Format("-- [{7}] F:{0:#,##0}/{1:#,##0}/{2:#,##0} M:{3:#,##0}/{4:#,##0} {5}/{6}",
-                            curFetchCount,
-                            FetchRowCount,
-                            DstTable.RowCount,
-                            curMergeCount,
-                            MergeRowCount,
-                            ((currentFKeyList != null) && (currentFKeyList.Count > 0)) ? currentFKeyList[0].ToString() : "---",
-                            ((fkb.EndKeyList != null) && (fkb.EndKeyList.Count > 0)) ? fkb.EndKeyList[0].ToString() : "---",
-                            FetchLoopCount
-                            ));
+                        trnMerge.Commit();
+                        currentFKeyList = nextFKeyList; // Set the current key list with the key values from last fetched row
                     }
-
-                    trnMerge.Commit();
-                    currentFKeyList = nextFKeyList; // Set the current key list with the key values from last fetched row
                 }
 
                 //  Remove the temp table after we are finished with this table
