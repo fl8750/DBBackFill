@@ -30,17 +30,44 @@ namespace DBBackfill
 
         //  Range start and stop limit lists
         //
-        public int PartitionIdx = 0; // Current partition number
-
         public List<object> StartKeyList { get; private set; }
         public List<object> EndKeyList { get; private set; }
+        private List<object> _restartKeyList { get; set; }
 
         public List<object> StartKeys_orig { get; private set; }
         public List<object> EndKeys_orig { get; private set; }
 
+        //  Restart positioning information 
+        //
+        public bool FlgRestart = false; // Set true when initial restart check performed
+        public int RestartPartiton; // Restart partition number
+
+        public List<object> RestartKeys // Keys used for restart
+        {
+            get
+            {
+                return _restartKeyList;
+            }
+            set
+            {
+                FlgRestart = true;
+                _restartKeyList = value;
+            }
+        }
+
+        public void AddRestartKey(object newKey)
+        {
+            _restartKeyList.Add(newKey);
+        }
+
+        //  Constructed SQL commands
+        //
+        public string FetchBatchSql = ""; // Get the next batch of rows
+        public string FetchLastSql = ""; // Get the last row of the batch
+
         //  Methods
         //
-        public virtual string GetFetchQuery(TableInfo srcTable, SqlCommand cmdSrcDb, int partNumber, int fetchCnt, List<string> keyColNames, List<object> curKeys)
+        public virtual void BuildFetchQuery(TableInfo srcTable, Dictionary<string, SqlParameter> paramList, int partNumber, int fetchCnt, List<string> keyColNames, List<object> curKeys)
         {
             throw new ApplicationException("Not Implemented!");
         }
@@ -49,7 +76,6 @@ namespace DBBackfill
         {
             throw new ApplicationException("Not Implemented!");
         }
-
 
         //
         //  Constructors
@@ -61,6 +87,9 @@ namespace DBBackfill
 
             StartKeyList = new List<object>(); // Initialize the start/end key lists
             EndKeyList = new List<object>();
+
+            RestartPartiton = 1;
+            RestartKeys = new List<object>(); // Clear out the restart keys list
         }
 
     }

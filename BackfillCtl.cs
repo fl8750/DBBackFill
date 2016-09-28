@@ -28,6 +28,7 @@ namespace DBBackfill
         public string SessionName { get; set; }
         public int Debug { get; set; }
         public bool DebugToConsole { get; set; }
+        public int CommandTimeout { get; set; } // Default SQL timeout in seconds
 
         private string _debugFile = string.Empty;   // Path to debug file, if one is required
 
@@ -133,6 +134,7 @@ namespace DBBackfill
             SessionName = (sessionName == "default") ? DateTime.Now.ToString("yyyyMMddHHmm") : sessionName;
             Debug = debug;
             DebugToConsole = true;
+            CommandTimeout = 600;
         }
 
         public BackfillCtl() {}

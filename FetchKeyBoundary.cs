@@ -20,7 +20,8 @@ namespace DBBackfill
             return FKeyColNames.Select(kcName => lastDataRow[kcName]).ToList();
         }
 
-        public override string GetFetchQuery(TableInfo srcTable, SqlCommand cmdSrcDb, int partNumber, int fetchCnt, List<string> keyColNames, List<object> curKeys)
+        public override void BuildFetchQuery(TableInfo srcTable, Dictionary<string, SqlParameter> paramList,
+            int partNumber, int fetchCnt, List<string> keyColNames, List<object> curKeys)
         {
             StringBuilder sbFetch = new StringBuilder();
 
@@ -32,22 +33,23 @@ namespace DBBackfill
 
             //  Build the front part of the SQL query
             //
-            sbFetch.AppendFormat("SELECT TOP ({{0}}) {0} \n", (FlgOrderBy) ? "WITH TIES" : "");
-            sbFetch.AppendFormat("      {{1}} \n");
-            sbFetch.AppendFormat("  FROM {0} SRC \n", srcTable.FullTableName);
+            sbFetch.AppendFormat("  SELECT TOP ({{0}}) {0} \n", (FlgOrderBy) ? "WITH TIES" : "");
+            sbFetch.AppendFormat("        {{1}} \n");
+            sbFetch.AppendFormat("        , ROW_NUMBER() OVER (ORDER BY {0}) AS [__ROWS__] \n", string.Join(", ", keyColNames.Select(ccn => string.Format("[{0}]", ccn)).ToArray()));
+            sbFetch.AppendFormat("      FROM {0} \n", srcTable.FullTableName);
 
             //  Build the WHERE clause
             //
             bool flgNeedAnd = false;
             if (((skCnt + ekCnt) > 0) || (FlgSelectByPartition))
             {
-                sbFetch.AppendFormat("  WHERE \n");
+                sbFetch.AppendFormat("      WHERE \n");
 
                 //  If required, fetch rows from each partition individually (performance)
                 //
                 if (FlgSelectByPartition)
                 {
-                    sbFetch.AppendFormat("    ($PARTITION.[{0}]({1}) = {2}) \n", srcTable.PtFunc, srcTable.PtCol.NameQuoted, partNumber);
+                    sbFetch.AppendFormat("      ($PARTITION.[{0}]({1}) = {2}) \n", srcTable.PtFunc, srcTable.PtCol.NameQuoted, partNumber);
                     flgNeedAnd = true;  // Insert the partition number to be queried
                 }
 
@@ -60,17 +62,17 @@ namespace DBBackfill
                     {
                         string pName = string.Format("@sk{0}", idx + 1);
                         SqlDbType dbType = (SqlDbType) Enum.Parse(typeof (SqlDbType), srcTable[keyColNames[idx]].Datatype, true);
-                        cmdSrcDb.Parameters.Add(new SqlParameter(pName, dbType));
-                        cmdSrcDb.Parameters[pName].Value = curKeys[idx];
+                        paramList.Add(pName, new SqlParameter(pName, dbType));
+                        paramList[pName].Value = curKeys[idx];
                     }
 
-                    sbFetch.Append("    (");    // Construct the logical clauses to mark the beginning of the fetch range
+                    sbFetch.Append("        (");    // Construct the logical clauses to mark the beginning of the fetch range
                     for (int oidx = skCnt; oidx > 0; oidx--)
                     {
                         sbFetch.Append("(");
                         for (int iidx = 0; iidx < oidx; ++iidx)
                         {
-                            sbFetch.AppendFormat("(SRC.{0} {1} @sk{2})",
+                            sbFetch.AppendFormat("({0} {1} @sk{2})",
                                 srcTable[keyColNames[iidx]].NameQuoted,
                                 ((oidx - iidx) > 1)
                                     ? "="
@@ -95,17 +97,17 @@ namespace DBBackfill
                     {
                         string pName = string.Format("@ek{0}", idx + 1);
                         SqlDbType dbType = (SqlDbType) Enum.Parse(typeof (SqlDbType), srcTable[keyColNames[idx]].Datatype, true);
-                        cmdSrcDb.Parameters.Add(new SqlParameter(pName, dbType));
-                        cmdSrcDb.Parameters[pName].Value = EndKeyList[idx];
+                        paramList.Add(pName, new SqlParameter(pName, dbType));
+                        paramList[pName].Value = EndKeyList[idx];
                     }
 
-                    sbFetch.Append("    (");
+                    sbFetch.Append("        (");
                     for (int oidx = ekCnt; oidx > 0; oidx--)
                     {
                         sbFetch.Append("(");
                         for (int iidx = 0; iidx < oidx; ++iidx)
                         {
-                            sbFetch.AppendFormat("(SRC.{0} {1} @ek{2})",
+                            sbFetch.AppendFormat("({0} {1} @ek{2})",
                                 srcTable[keyColNames[iidx]].NameQuoted,
                                 ((oidx - iidx) > 1) ? "=" : ((iidx + 1) == ekCnt) ? "<=" : "<",
                                 (iidx + 1));
@@ -120,9 +122,30 @@ namespace DBBackfill
 
             //  Build the ORDER BY clause
             //
-            sbFetch.AppendFormat("  ORDER BY {0} \n", string.Join(", ", keyColNames.Select(ccn => string.Format("SRC.[{0}]", ccn)).ToArray()));
+            sbFetch.AppendFormat("      ORDER BY {0} \n", string.Join(", ", keyColNames.Select(ccn => string.Format("[{0}]", ccn)).ToArray()));
 
-            return sbFetch.ToString();
+            FetchBatchSql = sbFetch.ToString(); // Save the completed string
+
+            //
+            // ===================================================================================================
+            //
+            StringBuilder sbFetchLast = new StringBuilder();
+
+            sbFetchLast.AppendFormat("INSERT INTO {{2}} \n" );
+            sbFetchLast.AppendFormat("  ({{1}}, [__ROWS__]) \n");
+            sbFetchLast.AppendFormat("      {0} \n", FetchBatchSql);
+            sbFetchLast.AppendFormat("-- \n");
+            sbFetchLast.AppendFormat(";WITH SRC AS ( \n");
+            sbFetchLast.AppendFormat("{0} \n", FetchBatchSql);
+            sbFetchLast.AppendFormat(" ) \n");
+            sbFetchLast.AppendFormat("  SELECT TOP 1 SRC.[__ROWS__], \n");
+            sbFetchLast.AppendFormat("      {0} \n", string.Join(", ", keyColNames.Select(ccn => string.Format("SRC.[{0}]", ccn)).ToArray()));
+            sbFetchLast.AppendFormat("      FROM SRC \n");
+            sbFetchLast.AppendFormat("      ORDER BY {0} \n", string.Join(", ", keyColNames.Select(ccn => string.Format("SRC.[{0}] DESC", ccn)).ToArray()));
+
+            FetchLastSql = sbFetchLast.ToString();
+
+            return;
         }
 
         //  Constructors

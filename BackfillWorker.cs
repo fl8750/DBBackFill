@@ -39,7 +39,15 @@ namespace DBBackfill
                                  List<string> dstKeyNames = null
                                  )
         {
-            Dictionary<int, Int64> PartSizes = new Dictionary<int, Int64>();
+            //  Local information
+            //
+            bool isSrcDstEqual = false;
+            bool hasRestarted = false;
+
+            int curFetchCount;
+            int curMergeCount;
+            
+            Dictionary<int, Int64> PartSizes = new Dictionary<int, Int64>();    // Per partition row counts.
 
             //  Prepare the list of fetch key columns and merge key columns
             //
@@ -56,6 +64,8 @@ namespace DBBackfill
 
             //  Prepare the SQL connections to the source and destination databases
             //
+            if ((SrcTable.InstanceName == DstTable.InstanceName) || (SrcTable.DbName == DstTable.DbName)) isSrcDstEqual = true;
+
             SqlConnection srcConn = BackfillCtl.OpenDB(SrcTable.InstanceName, SrcTable.DbName);
             SqlConnection dstConn = BackfillCtl.OpenDB(DstTable.InstanceName, DstTable.DbName);
 
@@ -75,27 +85,24 @@ namespace DBBackfill
 
                 //  Get the partition sizing info if "partition selection" is required
                 //
-                //if (fkb.FlgSelectByPartition)
-                //{
-                    using (SqlCommand cmdPtSz = new SqlCommand(string.Format(_sqlPartitionSizes, SrcTable.SchemaName, SrcTable.TableName), srcConn)) // Source database command
+                using (SqlCommand cmdPtSz = new SqlCommand(string.Format(_sqlPartitionSizes, SrcTable.SchemaName, SrcTable.TableName), srcConn)) // Source database command
+                {
+                    cmdPtSz.CommandType = CommandType.Text;
+                    cmdPtSz.CommandTimeout = 600;
+                    using (SqlDataReader srcPtRdr = cmdPtSz.ExecuteReader()) // Fetch data into a data reader
                     {
-                        cmdPtSz.CommandType = CommandType.Text;
-                        cmdPtSz.CommandTimeout = 600;
-                        using (SqlDataReader srcPtRdr = cmdPtSz.ExecuteReader()) // Fetch data into a data reader
+                        using (DataTable srcDt = new DataTable())
                         {
-                            using (DataTable srcDt = new DataTable())
-                            {
-                                srcDt.Load(srcPtRdr); // Load the data into a DataTable
-                                PartSizes = srcDt.AsEnumerable().Select(p =>
-                                    new{
-                                        PartNo = (int) p["partition_number"],
-                                        Rows = (Int64) p["Rows"]
-                                    }).ToDictionary(pt => pt.PartNo, pt => pt.Rows);
-                                SrcTable.RowCount = (Int64) srcDt.Rows[0]["TotalRows"];
-                            }
+                            srcDt.Load(srcPtRdr); // Load the data into a DataTable
+                            PartSizes = srcDt.AsEnumerable().Select(p =>
+                                new{
+                                    PartNo = (int) p["partition_number"],
+                                    Rows = (Int64) p["Rows"]
+                                }).ToDictionary(pt => pt.PartNo, pt => pt.Rows);
+                            SrcTable.RowCount = (Int64) srcDt.Rows[0]["TotalRows"];
                         }
                     }
-                //}
+                }
 
                 //  Show the rowcount
                 BkfCtrl.DebugOutput(string.Format("      Rows: {0:#,##0}  BatchChunkSize: {1:#,##0}",
@@ -103,120 +110,175 @@ namespace DBBackfill
                         batchSize
                         ));
 
-                PrepareWorker(dstConn, dstKeyNames); // Setup the needed SQL environment
+                PrepareWorker((isSrcDstEqual) ? dstConn : srcConn, dstKeyNames); // Setup the needed SQL environment
 
                 //  Reset data pump loop counters
                 //
                 FetchRowCount = 0; // Total number of rows feched
                 MergeRowCount = 0; // Total number of rows inserted into the dest table
 
-
                 //  Partition Loop -- Once per partition
                 //
                 List<int> ptNumbers = PartSizes.Keys.OrderBy(p => p).ToList();
+                int ptIdx = 0;
+                if ( fkb.FlgRestart && (fkb.RestartPartiton != 1))
+                {
+                    for (ptIdx = 0; ptIdx < ptNumbers.Count; ptIdx++)
+                        if (ptNumbers[ptIdx] >= fkb.RestartPartiton)
+                            break; // If the selected partition does exists then start at the next highest or the last
+                }
 
-                for (int ptIdx = 0; ptIdx < ((fkb.FlgSelectByPartition) ? ptNumbers.Count : 1); ptIdx++)
+                //
+                for (; ptIdx < ((fkb.FlgSelectByPartition) ? ptNumbers.Count : 1); ptIdx++)
                 {
                     //  
                     //  Setup the initial key value list
                     //
                     List<object> currentFKeyList = new List<object>();
-                    for (int idx = 0; (idx < fkb.StartKeyList.Count) && (idx < srcKeyNames.Count); idx++)
+                    if (!hasRestarted && fkb.FlgRestart)
                     {
-                        currentFKeyList.Add(fkb.StartKeyList[idx]); // Copy a key value
+                        for (int idx = 0; (idx < fkb.RestartKeys.Count) && (idx < srcKeyNames.Count); idx++)
+                        {
+                            currentFKeyList.Add(fkb.RestartKeys[idx]); // Process any restart keys values
+                        }
                     }
+                    else
+                    {
+                        for (int idx = 0; (idx < fkb.StartKeyList.Count) && (idx < srcKeyNames.Count); idx++)
+                        {
+                            currentFKeyList.Add(fkb.StartKeyList[idx]); // Copy a key value              
+                        }
+                    }
+
                     FetchLoopCount = 0; // Number of completed fetchs
+                    hasRestarted = true;
 
                     //
                     //  Main Data Pump loop
                     //
                     while (true)
                     {
-                        DataTable srcDt;
-                        int curFetchCount;
-                        int curMergeCount;
+                        int partNo = ptNumbers[ptIdx];
+                        string sqlFetchData = "";
                         List<object> nextFKeyList;
-                        using (SqlCommand cmdSrcDb = new SqlCommand("", srcConn)) // Source database command
+
+                        SqlTransaction trnMerge;
+                        Dictionary<string, SqlParameter> fetchParamList = new Dictionary<string, SqlParameter>();
+
+                        //  Build the SQL command to fetch the next set of rows
+                        //
+                        fkb.BuildFetchQuery(SrcTable, fetchParamList, partNo, FetchLoopCount, srcKeyNames, currentFKeyList);
+
+                        SqlConnection tmpConn;
+                        if (isSrcDstEqual)
                         {
-                            //  Fetch the next batch of data
+                            //  Build the final batch fetch SQL command
                             //
-                            string strFetchSql = fkb.GetFetchQuery(SrcTable, cmdSrcDb, ptNumbers[ptIdx], FetchLoopCount, srcKeyNames, currentFKeyList);
-                            //string strFetchSqlOrderBy = string.Format(" ORDER BY {0}", string.Join(", ", srcKeyNames.Select(kc => ("SRC." + kc)).ToArray()));
-
-                            string sqlFetchData = string.Format(
-                                strFetchSql,
+                            sqlFetchData = string.Format(
+                                fkb.FetchLastSql,
                                 batchSize,
-                                string.Join(", \n       ", CopyColNames.Select(ccn => string.Format("SRC.[{0}]", ccn)).ToArray())
+                                string.Join(", \n           ", CopyColNames.Select(ccn => string.Format("[{0}]", ccn)).ToArray()),
+                                DstTempFullTableName
                                 ); // Complete the fetch query setup
-                            cmdSrcDb.CommandText = sqlFetchData;
-                            cmdSrcDb.CommandType = CommandType.Text;
-
-                            //  Fetch the next group of data rows from the source table
-                            //
-                            cmdSrcDb.CommandTimeout = 600;
-                            using (SqlDataReader srcRdr = cmdSrcDb.ExecuteReader()) // Fetch data into a data reader
-                            {
-                                srcDt = new DataTable();
-                                srcDt.Load(srcRdr); // Load the data into a DataTable
-                                srcRdr.Close(); // Close the reader
-                            }
-
-                            curFetchCount = srcDt.Rows.Count;
-                            FetchRowCount += curFetchCount;
-                            if (curFetchCount <= 0) break; // Nothing fetched, exit the data pump loop
-                            ++FetchLoopCount;
-
-                            nextFKeyList = fkb.FetchNextKeyList(srcDt.Rows[curFetchCount - 1]);
+                            tmpConn = dstConn;
                         }
 
-                        //  Create a transaction object  - Protect the bulk import, merge and truncate statement in a transaction
-                        //
-                        SqlTransaction trnMerge = dstConn.BeginTransaction();
-
-                        //  Setup for the SqlBulk Insert to the destination temp table
-                        //
-                        SqlBulkCopyOptions bcpyOpts = (DstTable.HasIdentity)
-                            ? (SqlBulkCopyOptions.KeepIdentity | SqlBulkCopyOptions.KeepNulls)
-                            : SqlBulkCopyOptions.KeepNulls;
-                        using (SqlBulkCopy bulkCopy = new SqlBulkCopy(dstConn, bcpyOpts, trnMerge))
+                        else
                         {
-                            try
-                            {
-                                bulkCopy.BulkCopyTimeout = 600;
-                                bulkCopy.DestinationTableName = DstTempFullTableName;
+                            //  Build the final batch fetch SQL command
+                            //
+                            sqlFetchData = string.Format(
+                                fkb.FetchBatchSql,
+                                batchSize,
+                                string.Join(", \n       ", CopyColNames.Select(ccn => string.Format("[{0}]", ccn)).ToArray())
+                                ); // Complete the fetch query setup
+                            tmpConn = srcConn;
+                        }
 
-                                // Setup explicit column mapping to avoid any problem from the default mapping behavior
-                                //
-                                foreach (string ccn in CopyColNames)
+                        //   Fetch the next set of rows into a DataTable
+                        //
+                        using (DataTable srcDt = new DataTable())
+                        {
+                            using (SqlCommand cmdSrcDb = new SqlCommand("", tmpConn)) // Source database command
+                            {
+                                cmdSrcDb.CommandText = sqlFetchData;
+                                cmdSrcDb.CommandType = CommandType.Text;
+                                cmdSrcDb.CommandTimeout = BkfCtrl.CommandTimeout;
+
+                                foreach (SqlParameter prm in fetchParamList.Values)
+                                    cmdSrcDb.Parameters.Add(prm);
+
+                                using (SqlDataReader srcRdr = cmdSrcDb.ExecuteReader()) // Fetch data into a data reader
                                 {
-                                    TableColInfo tci = DstTable[ccn];
-                                    if (tci.IsIncluded)
+                                    srcDt.Load(srcRdr); // Load the data into a DataTable
+                                    srcRdr.Close(); // Close the reader
+                                }
+
+                                //  Get the key values from the last row in the batch
+                                //
+                                curFetchCount = srcDt.Rows.Count;
+                                if (curFetchCount <= 0) break; // Nothing fetched, exit the data pump loop
+                                if (isSrcDstEqual)
+                                {
+                                    curFetchCount = (int)(Int64) srcDt.Rows[0]["__ROWS__"]; // Get the real fetch count
+                                    nextFKeyList = fkb.FetchNextKeyList(srcDt.Rows[0]); // Get the last row keys
+                                }
+                                else
+                                    nextFKeyList = fkb.FetchNextKeyList(srcDt.Rows[curFetchCount - 1]); // Get the last row key
+                                FetchRowCount += curFetchCount;
+
+                                ++FetchLoopCount;  // Increment the loop count
+                            }
+
+                            //  Create a transaction object  - Protect the bulk import, merge and truncate statement in a transaction
+                            //
+                            trnMerge = dstConn.BeginTransaction();
+
+                            //  Setup for the SqlBulk Insert to the destination temp table
+                            //
+                            if (!isSrcDstEqual)
+                            {
+                                SqlBulkCopyOptions bcpyOpts = (DstTable.HasIdentity)
+                                    ? (SqlBulkCopyOptions.KeepIdentity | SqlBulkCopyOptions.KeepNulls)
+                                    : SqlBulkCopyOptions.KeepNulls;
+                                using (SqlBulkCopy bulkCopy = new SqlBulkCopy(dstConn, bcpyOpts, trnMerge))
+                                {
+                                    try
                                     {
-                                        SqlBulkCopyColumnMapping newCMap = new SqlBulkCopyColumnMapping(tci.Name, tci.Name);
-                                        bulkCopy.ColumnMappings.Add(newCMap);
+                                        bulkCopy.BulkCopyTimeout = BkfCtrl.CommandTimeout;
+                                        bulkCopy.DestinationTableName = DstTempFullTableName;
+
+                                        // Setup explicit column mapping to avoid any problem from the default mapping behavior
+                                        //
+                                        foreach (string ccn in CopyColNames)
+                                        {
+                                            TableColInfo tci = DstTable[ccn];
+                                            if (tci.IsIncluded)
+                                            {
+                                                SqlBulkCopyColumnMapping newCMap = new SqlBulkCopyColumnMapping(tci.Name, tci.Name);
+                                                bulkCopy.ColumnMappings.Add(newCMap);
+                                            }
+                                        }
+                                        bulkCopy.WriteToServer(srcDt); // Write from the source to the destination.
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Console.WriteLine(ex.Message);
+                                        throw;
                                     }
                                 }
-                                bulkCopy.WriteToServer(srcDt); // Write from the source to the destination.
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine(ex.Message);
-                                throw;
-                            }
-                            finally
-                            {
-                                srcDt.Clear();
-                            }
-                        }
-
+                            }                          
+                        }   
+ 
                         //  Now merge the temp table into the final destination table
                         //
                         using (SqlCommand cmdDstMerge = new SqlCommand(QryDataMerge, dstConn, trnMerge)) //  Destination datbase connection
                         {
-                            cmdDstMerge.CommandTimeout = 600;
+                            cmdDstMerge.CommandTimeout = BkfCtrl.CommandTimeout;  // Set the set timeout value
                             curMergeCount = (int) cmdDstMerge.ExecuteScalar();
                             MergeRowCount += curMergeCount;
                         }
+                        trnMerge.Commit();
 
                         //  Last step -- write a progress record for restart purposes
                         //
@@ -235,7 +297,6 @@ namespace DBBackfill
                                 ));
                         }
 
-                        trnMerge.Commit();
                         currentFKeyList = nextFKeyList; // Set the current key list with the key values from last fetched row
                     }
                 }
@@ -291,8 +352,7 @@ namespace DBBackfill
                 try
                 {
                     string sqlTableDrop = string.Format(@"IF OBJECT_ID('tempdb..{0}') IS NOT NULL DROP TABLE {0}; ",
-                        DstTempFullTableName,
-                        DstTempTableName);
+                        DstTempFullTableName);
                     using (SqlCommand cmdWTab = new SqlCommand(sqlTableDrop, dstConn))
                     {
                         cmdWTab.ExecuteNonQuery();
@@ -309,7 +369,8 @@ namespace DBBackfill
                                         FROM [{0}].{1}
                                         WHERE 1=0;
                                     CREATE UNIQUE CLUSTERED INDEX [UCI_{3}_{4}] 
-                                        ON {2} ({5});";
+                                        ON {2} ({5});
+                                    ALTER TABLE {2} ADD [__ROWS__] INT NOT NULL";
 
                 string sqlCreateWTab = string.Format(strCreateWTab,
                     DstTable.DbName,
@@ -370,21 +431,22 @@ namespace DBBackfill
 
             //  Prepare the MERGE statement for the destination side
             //
-            QryDataMerge = string.Format(@" USE [{6}];
-                                            SET NOCOUNT ON;
-                                            DECLARE @mCount INT;
-                                            {5}SET IDENTITY_INSERT {0} ON;
-                                            MERGE INTO {0} AS DST 
-                                                  USING {1} AS SRC
-                                                     ON ({2})
-                                                  WHEN NOT MATCHED BY TARGET THEN 
-                                                     INSERT ({3})
-                                                     VALUES ({4})
-                                                  {7};
-                                            SET @mCount=@@ROWCOUNT;
-                                            {5}SET IDENTITY_INSERT {0} OFF;
-                                            TRUNCATE TABLE {1};
-                                            SELECT @mCount;",
+            QryDataMerge = string.Format(@" 
+        USE [{6}];
+        SET NOCOUNT ON;
+        DECLARE @mCount INT;
+        {5}SET IDENTITY_INSERT {0} ON;                                     
+           MERGE INTO {0} AS DST 
+                USING {1} AS SRC
+                    ON ({2})
+                WHEN NOT MATCHED BY TARGET THEN 
+                    INSERT ({3})
+                    VALUES ({4})
+                {7};
+        SET @mCount=@@ROWCOUNT;
+        {5}SET IDENTITY_INSERT {0} OFF;
+        TRUNCATE TABLE {1};
+        SELECT @mCount;",
                 DstTable.FullTableName,
                 DstTempFullTableName,
                 string.Join(" AND ", DstKeyNames.Where(kc => (SrcTable[kc].IsComparable)).Select(kc => string.Format("(SRC.{0} = DST.{0})", DstTable[kc].NameQuoted)).ToArray()),
