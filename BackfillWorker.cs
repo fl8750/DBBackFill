@@ -121,10 +121,10 @@ namespace DBBackfill
                 //
                 List<int> ptNumbers = PartSizes.Keys.OrderBy(p => p).ToList();
                 int ptIdx = 0;
-                if ( fkb.FlgRestart && (fkb.RestartPartiton != 1))
+                if ( fkb.FlgRestart && (fkb.RestartPartition != 1))
                 {
                     for (ptIdx = 0; ptIdx < ptNumbers.Count; ptIdx++)
-                        if (ptNumbers[ptIdx] >= fkb.RestartPartiton)
+                        if (ptNumbers[ptIdx] >= fkb.RestartPartition)
                             break; // If the selected partition does exists then start at the next highest or the last
                 }
 
@@ -320,9 +320,11 @@ namespace DBBackfill
                        ));
                 }
 
+                BkfCtrl.CapturedException = null;
             }
             catch (Exception ex)
             {
+                BkfCtrl.CapturedException = ex; // Save the exception information 
                 Console.WriteLine(ex.Message);
                 throw;
             }
@@ -449,7 +451,7 @@ namespace DBBackfill
         SELECT @mCount;",
                 DstTable.FullTableName,
                 DstTempFullTableName,
-                string.Join(" AND ", DstKeyNames.Where(kc => (SrcTable[kc].IsComparable)).Select(kc => string.Format("(SRC.{0} = DST.{0})", DstTable[kc].NameQuoted)).ToArray()),
+                string.Join(" AND ", dstKeyNames.Where(kc => (SrcTable[kc].IsComparable)).Select(kc => string.Format("(SRC.{0} = DST.{0})", DstTable[kc].NameQuoted)).ToArray()),
                 string.Join(", ", CopyColNames.Select(dc => SrcTable[dc].NameQuoted).ToArray()),
                 string.Join(", ", CopyColNames.Select(sd => string.Format("SRC.{0}", SrcTable[sd].NameQuoted)).ToArray()),
                 (DstTable.HasIdentity) ? "" : "-- ",

@@ -185,7 +185,7 @@ namespace DBBackfill
                                     INNER JOIN sys.Partition_functions PF ON ( PS.function_id = PF.function_id )
                                   ) ON ( IDX.data_space_id = PS.data_space_id )
                WHERE    ( TAB.is_ms_shipped = 0 )
-                        AND ( IDX.[type] IN ( 0, 1 ) )
+                        AND ( IDX.[type] IN ( 0, 1, 5 ) )
                ORDER BY SchemaName ,
                         TableName ,
                         column_id";

@@ -1,12 +1,30 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Data.Common;
 using System.Data.SqlClient;
 using System.IO;
+using System.Linq;
+using System.Runtime.Serialization;
 
 
 namespace DBBackfill
 {
+
+    public class ExtraSrcColumn
+    {
+        public TableInfo Table = null;
+        public TableColInfo CopyColumn = null;
+        public Dictionary<string, string> JoinColumns = new Dictionary<string, string>();
+
+        public ExtraSrcColumn(TableInfo srcTable, string copyColumn, string joinColumns = "")
+        {
+            Table = srcTable;
+            CopyColumn = Table[copyColumn];
+
+        }
+    }
+
     public class BackfillCtl 
     {
         //[Flags]
@@ -26,10 +44,14 @@ namespace DBBackfill
         //
         public string WorkSchemaName { get; private set; }
         public string SessionName { get; set; }
-        public int Debug { get; set; }
-        public bool DebugToConsole { get; set; }
         public int CommandTimeout { get; set; } // Default SQL timeout in seconds
 
+        //  Debug information
+        //
+        public Exception CapturedException = null;
+
+        public int Debug { get; set; }
+        public bool DebugToConsole { get; set; }
         private string _debugFile = string.Empty;   // Path to debug file, if one is required
 
         public string DebugFile
@@ -97,6 +119,14 @@ namespace DBBackfill
             }
             bfCtx.BackfillData(fkb, batchSize, srcKeyNames ?? fkb.FKeyColNames, dstKeyNames);
             bfCtx.Dispose();
+        }
+
+        public void BackfillData(TableInfo srcTable, TableInfo dstTable, List<string> copyColNames,
+                                 FetchKeyBoundary fkb, int batchSize,
+                                 string srcKeyNames , string dstKeyNames )
+        {
+            BackfillData(srcTable, dstTable, copyColNames, fkb, batchSize,
+                           srcKeyNames.Split(',').ToList(), dstKeyNames.Split(',').ToList());
         }
 
         //  Method

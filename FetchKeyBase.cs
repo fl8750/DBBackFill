@@ -40,7 +40,7 @@ namespace DBBackfill
         //  Restart positioning information 
         //
         public bool FlgRestart = false; // Set true when initial restart check performed
-        public int RestartPartiton; // Restart partition number
+        public int RestartPartition; // Restart partition number
 
         public List<object> RestartKeys // Keys used for restart
         {
@@ -88,7 +88,7 @@ namespace DBBackfill
             StartKeyList = new List<object>(); // Initialize the start/end key lists
             EndKeyList = new List<object>();
 
-            RestartPartiton = 1;
+            RestartPartition = 1;
             RestartKeys = new List<object>(); // Clear out the restart keys list
         }
 
