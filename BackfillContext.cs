@@ -25,6 +25,11 @@ namespace DBBackfill
         public TableInfo DstTable { get; private set; }
         public List<string> DstKeyNames = new List<string>();
 
+        public bool IsSrcDstEqual {
+            get { return ((SrcTable.InstanceName == DstTable.InstanceName) && (SrcTable.DbName == DstTable.DbName)); }
+        }
+
+
         //  Work totals
         //
         public int FetchLoopCount = 0; // Number of completed fetchs
@@ -46,12 +51,21 @@ namespace DBBackfill
 
         public string DstTempTableName
         {
-            get { return string.Format("#{0}_{1}_{2}_{3}_{4}", BkfCtrl.SessionName, SrcTable.InstanceName, SrcTable.DbName, SrcTable.SchemaName, SrcTable.TableName); }
+            get
+            {
+                return string.Format("{0}_{1}_{2}_{3}_{4}", BkfCtrl.SessionName, SrcTable.InstanceName, SrcTable.DbName, SrcTable.SchemaName, SrcTable.TableName);
+            }
         }
 
         public string DstTempFullTableName
         {
-            get { return string.Format("[{0}]", DstTempTableName); }
+            //get { return DstTempTableName; }
+            get
+            {
+                return IsSrcDstEqual
+                    ? string.Format("[#{0}]", DstTempTableName)
+                    : string.Format("[{1}].[dbo].[{0}]", DstTempTableName, DstConn.Database);
+            }
         }
 
 

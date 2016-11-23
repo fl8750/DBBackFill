@@ -41,7 +41,7 @@ namespace DBBackfill
         {
             //  Local information
             //
-            bool isSrcDstEqual = false;
+            //bool isSrcDstEqual = false;
             bool hasRestarted = false;
 
             int curFetchCount;
@@ -64,7 +64,7 @@ namespace DBBackfill
 
             //  Prepare the SQL connections to the source and destination databases
             //
-            if ((SrcTable.InstanceName == DstTable.InstanceName) || (SrcTable.DbName == DstTable.DbName)) isSrcDstEqual = true;
+            //if ((SrcTable.InstanceName == DstTable.InstanceName) && (SrcTable.DbName == DstTable.DbName)) IsSrcDstEqual = true;
 
             SqlConnection srcConn = BackfillCtl.OpenDB(SrcTable.InstanceName, SrcTable.DbName);
             SqlConnection dstConn = BackfillCtl.OpenDB(DstTable.InstanceName, DstTable.DbName);
@@ -110,7 +110,7 @@ namespace DBBackfill
                         batchSize
                         ));
 
-                PrepareWorker((isSrcDstEqual) ? dstConn : srcConn, dstKeyNames); // Setup the needed SQL environment
+                PrepareWorker((IsSrcDstEqual) ? dstConn : srcConn, dstKeyNames); // Setup the needed SQL environment
 
                 //  Reset data pump loop counters
                 //
@@ -170,7 +170,7 @@ namespace DBBackfill
                         fkb.BuildFetchQuery(SrcTable, fetchParamList, partNo, FetchLoopCount, srcKeyNames, currentFKeyList);
 
                         SqlConnection tmpConn;
-                        if (isSrcDstEqual)
+                        if (IsSrcDstEqual)
                         {
                             //  Build the final batch fetch SQL command
                             //
@@ -218,7 +218,7 @@ namespace DBBackfill
                                 //
                                 curFetchCount = srcDt.Rows.Count;
                                 if (curFetchCount <= 0) break; // Nothing fetched, exit the data pump loop
-                                if (isSrcDstEqual)
+                                if (IsSrcDstEqual)
                                 {
                                     curFetchCount = (int)(Int64) srcDt.Rows[0]["__ROWS__"]; // Get the real fetch count
                                     nextFKeyList = fkb.FetchNextKeyList(srcDt.Rows[0]); // Get the last row keys
@@ -236,7 +236,7 @@ namespace DBBackfill
 
                             //  Setup for the SqlBulk Insert to the destination temp table
                             //
-                            if (!isSrcDstEqual)
+                            if (!IsSrcDstEqual)
                             {
                                 SqlBulkCopyOptions bcpyOpts = (DstTable.HasIdentity)
                                     ? (SqlBulkCopyOptions.KeepIdentity | SqlBulkCopyOptions.KeepNulls)
@@ -347,14 +347,22 @@ namespace DBBackfill
             try
             {
                 strSavedDatabase = dstConn.Database;    // Save the current database setting
-                dstConn.ChangeDatabase("tempdb");       // Switch to the temp datababse
 
                 //  Create the destination work table if not there, or drop any existing table.
                 //
                 try
                 {
-                    string sqlTableDrop = string.Format(@"IF OBJECT_ID('tempdb..{0}') IS NOT NULL DROP TABLE {0}; ",
-                        DstTempFullTableName);
+                    string sqlTableDrop;
+                    if (IsSrcDstEqual)
+                    {
+                        dstConn.ChangeDatabase("tempdb"); // Switch to the temp datababse
+                        sqlTableDrop = string.Format(@"IF OBJECT_ID('tempdb..{0}') IS NOT NULL DROP TABLE {0}; ", DstTempTableName);
+                        dstConn.ChangeDatabase(strSavedDatabase); // Switch to the temp datababse
+                    }
+                    else
+                    {
+                        sqlTableDrop = string.Format(@"IF OBJECT_ID('{0}') IS NOT NULL DROP TABLE {0}; ", DstTempFullTableName);
+                    }
                     using (SqlCommand cmdWTab = new SqlCommand(sqlTableDrop, dstConn))
                     {
                         cmdWTab.ExecuteNonQuery();
@@ -372,7 +380,7 @@ namespace DBBackfill
                                         WHERE 1=0;
                                     CREATE UNIQUE CLUSTERED INDEX [UCI_{3}_{4}] 
                                         ON {2} ({5});
-                                    ALTER TABLE {2} ADD [__ROWS__] INT NOT NULL";
+                                    {6} ALTER TABLE {2} ADD [__ROWS__] INT NOT NULL";
 
                 string sqlCreateWTab = string.Format(strCreateWTab,
                     DstTable.DbName,
@@ -380,7 +388,9 @@ namespace DBBackfill
                     DstTempFullTableName,
                     TempSchemaName,
                     DstTempTableName,
-                    string.Join(", ", dstKeyNames.Select(cn => string.Format("[{0}]", cn)).ToArray()));
+                    string.Join(", ", dstKeyNames.Select(cn => string.Format("[{0}]", cn)).ToArray()),
+                    (IsSrcDstEqual) ? "" : "--"
+                    );
 
                 using (SqlCommand cmdSch = new SqlCommand(sqlCreateWTab, dstConn))
                 {
