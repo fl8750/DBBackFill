@@ -6,11 +6,23 @@ using System.Linq;
 
 namespace DBBackfill
 {
+    public enum BackfillType
+    {
+        BulkInsert = 1, // Bulk insert into dest table
+        BulkInsertMerge, // Bulk insert into dest table with fallback to merge
+        Merge // Merge data into dest table
+    }
+
     public partial class BackfillContext : IDisposable
     {
         //  Global information
         //
         public BackfillCtl BkfCtrl { get; private set; }
+
+        //  Execution control
+        //
+        public BackfillType FillType = BackfillType.Merge; // Backfill strategy
+        public bool FetchDirect = false; // If true, fetch source rows diretly else fetch to temp table
 
         //  Data source information
         //
@@ -28,7 +40,6 @@ namespace DBBackfill
         public bool IsSrcDstEqual {
             get { return ((SrcTable.InstanceName == DstTable.InstanceName) && (SrcTable.DbName == DstTable.DbName)); }
         }
-
 
         //  Work totals
         //

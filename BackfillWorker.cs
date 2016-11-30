@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Data;
 using System.Data.SqlClient;
+using System.Diagnostics.Eventing.Reader;
 using System.Linq;
 using System.Text;
 
@@ -41,13 +42,15 @@ namespace DBBackfill
         {
             //  Local information
             //
-            //bool isSrcDstEqual = false;
-            bool hasRestarted = false;
+            bool isDirect = false; // Will hold final decision on whether direct row fetching is allowed
+            bool hasRestarted = false; // 
 
-            int curFetchCount;
-            int curMergeCount;
-            
-            Dictionary<int, Int64> PartSizes = new Dictionary<int, Int64>();    // Per partition row counts.
+            int curFetchCount = 0; // Number of rows fetched from the source table
+            int curMergeCount = 0; // Number of rows merged into the destination table
+
+            Dictionary<int, Int64> PartSizesAll = new Dictionary<int, Int64>();    // Per partition row counts for all partitions.
+            List<int> PartsNotEmpty = new List<int>();    // Partition # of non-empty partitions.
+
 
             //  Prepare the list of fetch key columns and merge key columns
             //
@@ -68,6 +71,11 @@ namespace DBBackfill
 
             SqlConnection srcConn = BackfillCtl.OpenDB(SrcTable.InstanceName, SrcTable.DbName);
             SqlConnection dstConn = BackfillCtl.OpenDB(DstTable.InstanceName, DstTable.DbName);
+
+            if (string.Compare(srcConn.DataSource, dstConn.DataSource, StringComparison.InvariantCultureIgnoreCase) == 0)
+                isDirect = FetchDirect; // Fetch direct from source controlled by FetchDirect flag
+            else
+                isDirect = false; // Fetching rows directly is not allowed
 
             //  Main code section -- start of the TRY / CATCH
             //
@@ -94,7 +102,7 @@ namespace DBBackfill
                         using (DataTable srcDt = new DataTable())
                         {
                             srcDt.Load(srcPtRdr); // Load the data into a DataTable
-                            PartSizes = srcDt.AsEnumerable().Select(p =>
+                            PartSizesAll = srcDt.AsEnumerable().Select(p =>
                                 new{
                                     PartNo = (int) p["partition_number"],
                                     Rows = (Int64) p["Rows"]
@@ -104,10 +112,13 @@ namespace DBBackfill
                     }
                 }
 
+                PartsNotEmpty = PartSizesAll.Keys.Where(pi => (PartSizesAll[pi] > 0)).OrderBy(pi => pi).ToList(); // Record the partition numbers that are not empty 
+
                 //  Show the rowcount
-                BkfCtrl.DebugOutput(string.Format("      Rows: {0:#,##0}  BatchChunkSize: {1:#,##0}",
+                BkfCtrl.DebugOutput(string.Format("      Rows: {0:#,##0}  BatchChunkSize: {1:#,##0}  Partitions(#/>0): {2:#,##0}/{3:#,##0}",
                         DstTable.RowCount,
-                        batchSize
+                        batchSize,
+                        PartSizesAll.Count, PartsNotEmpty.Count
                         ));
 
                 PrepareWorker((IsSrcDstEqual) ? dstConn : srcConn, dstKeyNames); // Setup the needed SQL environment
@@ -119,18 +130,20 @@ namespace DBBackfill
 
                 //  Partition Loop -- Once per partition
                 //
-                List<int> ptNumbers = PartSizes.Keys.OrderBy(p => p).ToList();
+                //List<int> ptNumbers = PartSizesAll.Keys.OrderBy(p => p).Where(p => (PartSizesAll[p] > 0)).ToList();
                 int ptIdx = 0;
                 if ( fkb.FlgRestart && (fkb.RestartPartition != 1))
                 {
-                    for (ptIdx = 0; ptIdx < ptNumbers.Count; ptIdx++)
-                        if (ptNumbers[ptIdx] >= fkb.RestartPartition)
+                    for (ptIdx = 0; ptIdx < PartsNotEmpty.Count; ptIdx++)
+                        if (PartsNotEmpty[ptIdx] >= fkb.RestartPartition)
                             break; // If the selected partition does exists then start at the next highest or the last
                 }
 
                 //
-                for (; ptIdx < ((fkb.FlgSelectByPartition) ? ptNumbers.Count : 1); ptIdx++)
+                for (; ptIdx < ((fkb.FlgSelectByPartition) ? PartsNotEmpty.Count : 1); ptIdx++)
                 {
+                    int curPartition = PartsNotEmpty[ptIdx];    // Current partition number
+
                     //  
                     //  Setup the initial key value list
                     //
@@ -158,7 +171,7 @@ namespace DBBackfill
                     //
                     while (true)
                     {
-                        int partNo = ptNumbers[ptIdx];
+                        //int partNo = PartsNotEmpty[ptIdx];
                         string sqlFetchData = "";
                         List<object> nextFKeyList;
 
@@ -167,7 +180,7 @@ namespace DBBackfill
 
                         //  Build the SQL command to fetch the next set of rows
                         //
-                        fkb.BuildFetchQuery(SrcTable, fetchParamList, partNo, FetchLoopCount, srcKeyNames, currentFKeyList);
+                        fkb.BuildFetchQuery(SrcTable, fetchParamList, curPartition, FetchLoopCount, srcKeyNames, currentFKeyList);
 
                         SqlConnection tmpConn;
                         if (IsSrcDstEqual)
@@ -238,35 +251,36 @@ namespace DBBackfill
                             //
                             if (!IsSrcDstEqual)
                             {
-                                SqlBulkCopyOptions bcpyOpts = (DstTable.HasIdentity)
-                                    ? (SqlBulkCopyOptions.KeepIdentity | SqlBulkCopyOptions.KeepNulls)
-                                    : SqlBulkCopyOptions.KeepNulls;
-                                using (SqlBulkCopy bulkCopy = new SqlBulkCopy(dstConn, bcpyOpts, trnMerge))
-                                {
-                                    try
-                                    {
-                                        bulkCopy.BulkCopyTimeout = BkfCtrl.CommandTimeout;
-                                        bulkCopy.DestinationTableName = DstTempFullTableName;
+                                BulkInsertIntoTable(dstConn, trnMerge, srcDt, DstTempFullTableName, CopyColNames);
+                                //    SqlBulkCopyOptions bcpyOpts = (DstTable.HasIdentity)
+                                //        ? (SqlBulkCopyOptions.KeepIdentity | SqlBulkCopyOptions.KeepNulls)
+                                //        : SqlBulkCopyOptions.KeepNulls;
+                                //    using (SqlBulkCopy bulkCopy = new SqlBulkCopy(dstConn, bcpyOpts, trnMerge))
+                                //    {
+                                //        try
+                                //        {
+                                //            bulkCopy.BulkCopyTimeout = BkfCtrl.CommandTimeout;
+                                //            bulkCopy.DestinationTableName = DstTempFullTableName;
 
-                                        // Setup explicit column mapping to avoid any problem from the default mapping behavior
-                                        //
-                                        foreach (string ccn in CopyColNames)
-                                        {
-                                            TableColInfo tci = DstTable[ccn];
-                                            if (tci.IsIncluded)
-                                            {
-                                                SqlBulkCopyColumnMapping newCMap = new SqlBulkCopyColumnMapping(tci.Name, tci.Name);
-                                                bulkCopy.ColumnMappings.Add(newCMap);
-                                            }
-                                        }
-                                        bulkCopy.WriteToServer(srcDt); // Write from the source to the destination.
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        Console.WriteLine(ex.Message);
-                                        throw;
-                                    }
-                                }
+                                //            // Setup explicit column mapping to avoid any problem from the default mapping behavior
+                                //            //
+                                //            foreach (string ccn in CopyColNames)
+                                //            {
+                                //                TableColInfo tci = DstTable[ccn];
+                                //                if (tci.IsIncluded)
+                                //                {
+                                //                    SqlBulkCopyColumnMapping newCMap = new SqlBulkCopyColumnMapping(tci.Name, tci.Name);
+                                //                    bulkCopy.ColumnMappings.Add(newCMap);
+                                //                }
+                                //            }
+                                //            bulkCopy.WriteToServer(srcDt); // Write from the source to the destination.
+                                //        }
+                                //        catch (Exception ex)
+                                //        {
+                                //            Console.WriteLine(ex.Message);
+                                //            throw;
+                                //        }
+                                //    }
                             }                          
                         }   
  
@@ -292,7 +306,7 @@ namespace DBBackfill
                                 MergeRowCount,
                                 ((currentFKeyList != null) && (currentFKeyList.Count > 0)) ? currentFKeyList[0].ToString() : "---",
                                 ((fkb.EndKeyList != null) && (fkb.EndKeyList.Count > 0)) ? fkb.EndKeyList[0].ToString() : "---",
-                                ptNumbers[ptIdx],
+                                curPartition,
                                 FetchLoopCount
                                 ));
                         }
@@ -334,6 +348,42 @@ namespace DBBackfill
                 BackfillCtl.CloseDb(dstConn);
             }
         }
+
+
+        private Exception BulkInsertIntoTable(SqlConnection dstConn, SqlTransaction trnActive, DataTable srcDt, string destTableName, List<string> copyColNames )
+        {
+            SqlBulkCopyOptions bcpyOpts = (DstTable.HasIdentity)
+                ? (SqlBulkCopyOptions.KeepIdentity | SqlBulkCopyOptions.KeepNulls)
+                : SqlBulkCopyOptions.KeepNulls;
+            using (SqlBulkCopy bulkCopy = new SqlBulkCopy(dstConn, bcpyOpts, trnActive))
+            {
+                try
+                {
+                    bulkCopy.BulkCopyTimeout = BkfCtrl.CommandTimeout;
+                    bulkCopy.DestinationTableName = destTableName;
+
+                    // Setup explicit column mapping to avoid any problem from the default mapping behavior
+                    //
+                    foreach (string ccn in copyColNames)
+                    {
+                        TableColInfo tci = DstTable[ccn];
+                        if (tci.IsIncluded)
+                        {
+                            SqlBulkCopyColumnMapping newCMap = new SqlBulkCopyColumnMapping(tci.Name, tci.Name);
+                            bulkCopy.ColumnMappings.Add(newCMap);
+                        }
+                    }
+                    bulkCopy.WriteToServer(srcDt); // Write from the source to the destination.
+                    return null;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.Message);
+                    return ex;
+                }
+            }
+        }
+
 
 
         // ===============================================================================================================================
