@@ -10,7 +10,7 @@ namespace DBBackfill
     {
         BulkInsert = 1, // Bulk insert into dest table
         BulkInsertMerge, // Bulk insert into dest table with fallback to merge
-        Merge // Merge data into dest table
+        Merge // Merge data into dest table3
     }
 
     public partial class BackfillContext : IDisposable
@@ -22,7 +22,7 @@ namespace DBBackfill
         //  Execution control
         //
         public BackfillType FillType = BackfillType.Merge; // Backfill strategy
-        public bool FetchDirect = false; // If true, fetch source rows diretly else fetch to temp table
+        public bool MergeDirect = false; // If true, fetch source rows diretly else fetch to temp table
 
         //  Data source information
         //

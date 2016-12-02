@@ -37,6 +37,8 @@ namespace DBBackfill
         public List<object> StartKeys_orig { get; private set; }
         public List<object> EndKeys_orig { get; private set; }
 
+        public BackfillType FillType = BackfillType.BulkInsert;
+
         //  Restart positioning information 
         //
         public bool FlgRestart = false; // Set true when initial restart check performed
@@ -67,7 +69,8 @@ namespace DBBackfill
 
         //  Methods
         //
-        public virtual void BuildFetchQuery(TableInfo srcTable, Dictionary<string, SqlParameter> paramList, int partNumber, int fetchCnt, List<string> keyColNames, List<object> curKeys)
+        public virtual void BuildFetchQuery(SqlCommand srcCmd, TableInfo srcTable, int batchSize,
+            int partNumber, bool isFirstFetch, List<string> copyColNames, List<string> keyColNames, List<object> curKeys)
         {
             throw new ApplicationException("Not Implemented!");
         }

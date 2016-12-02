@@ -89,7 +89,7 @@ namespace DBBackfill
 
         public void DebugOutput(string debugMessage)
         {
-            string strNow = DateTime.Now.ToString("yyyy-MM-dd hh:mm:ss.fff");
+            string strNow = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
             string strDMsg = string.Format("{0} {1}: {2}", SessionName, strNow, debugMessage);
             
             if (DebugToConsole) Console.WriteLine(strDMsg);
@@ -117,6 +117,8 @@ namespace DBBackfill
             {
                 fkb = srcTable.CreateFetchKeyComplete(srcKeyNames);  // If no FetchKey specified, assume a full table scan
             }
+
+            bfCtx.FillType = fkb.FillType; 
             bfCtx.BackfillData(fkb, batchSize, srcKeyNames ?? fkb.FKeyColNames, dstKeyNames);
             bfCtx.Dispose();
         }
