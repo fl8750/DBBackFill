@@ -214,9 +214,6 @@ namespace DBBackfill
                                 cmdSrcDb.CommandType = CommandType.Text;
                                 cmdSrcDb.CommandTimeout = BkfCtrl.CommandTimeout;
 
-                                //foreach (SqlParameter prm in fetchParamList.Values)
-                                //    cmdSrcDb.Parameters.Add(prm);
-
                                 using (SqlDataReader srcRdr = cmdSrcDb.ExecuteReader()) // Fetch data into a data reader
                                 {
                                     srcDt.Load(srcRdr); // Load the data into a DataTable
