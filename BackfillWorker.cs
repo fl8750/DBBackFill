@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Data;
 using System.Data.SqlClient;
-using System.Diagnostics.Eventing.Reader;
 using System.Linq;
 using System.Text;
 
@@ -136,18 +135,19 @@ namespace DBBackfill
                 {
                     int curPartition = PartsNotEmpty[ptIdx];    // Current partition number
 
-                    hasRestarted = true;
+                    hasRestarted = true;  // Assume a restart at the start of each partition
 
                     //  
                     //  Setup the initial key value list
                     //
                     List<object> currentFKeyList = new List<object>();
-                    if (!hasRestarted && fkb.FlgRestart)
+                    if (hasRestarted && fkb.FlgRestart)
                     {
                         for (int idx = 0; (idx < fkb.RestartKeys.Count) && (idx < srcKeyNames.Count); idx++)
                         {
                             currentFKeyList.Add(fkb.RestartKeys[idx]); // Process any restart keys values
                         }
+                        hasRestarted = false;
                     }
                     else
                     {
