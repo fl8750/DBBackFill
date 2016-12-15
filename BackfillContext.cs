@@ -64,7 +64,7 @@ namespace DBBackfill
         {
             get
             {
-                return string.Format("{0}_{1}_{2}_{3}_{4}", BkfCtrl.SessionName, SrcTable.InstanceName, SrcTable.DbName, SrcTable.SchemaName, SrcTable.TableName);
+                return string.Format("{0}_{1}_{2}_{3}_{4}", BkfCtrl.SessionName, SrcTable.InstanceName.Replace('\\', '_'), SrcTable.DbName, SrcTable.SchemaName, SrcTable.TableName);
             }
         }
 

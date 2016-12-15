@@ -390,7 +390,7 @@ namespace DBBackfill
                     if (IsSrcDstEqual)
                     {
                         dstConn.ChangeDatabase("tempdb"); // Switch to the temp datababse
-                        sqlTableDrop = string.Format(@"IF OBJECT_ID('tempdb..{0}') IS NOT NULL DROP TABLE {0}; ", DstTempTableName);
+                        sqlTableDrop = string.Format(@"IF OBJECT_ID('tempdb..[{0}]') IS NOT NULL DROP TABLE [{0}]; ", DstTempTableName);
                         dstConn.ChangeDatabase(strSavedDatabase); // Switch to the temp datababse
                     }
                     else
