@@ -40,8 +40,8 @@ namespace DBBackfill
                 batchSize);
             sbFetch.AppendFormat("        {0} \n",
                 string.Join(", \n       ", copyColNames.Select(ccn => string.Format("[{0}]", ccn)).ToArray()));
-            sbFetch.AppendFormat("        , ROW_NUMBER() OVER (ORDER BY {0}) AS [__ROWS__] \n",
-                string.Join(", ", keyColNames.Select(ccn => string.Format("[{0}]", ccn)).ToArray()));
+            //sbFetch.AppendFormat("        , ROW_NUMBER() OVER (ORDER BY {0}) AS [__ROWS__] \n",
+            //    string.Join(", ", keyColNames.Select(ccn => string.Format("[{0}]", ccn)).ToArray()));
             sbFetch.AppendFormat("          FROM {0} \n", srcTable.FullTableName);
 
             //  Build the WHERE clause
@@ -131,8 +131,8 @@ namespace DBBackfill
                     sbFetch.AppendLine(")");
                 }
             }
-            //sbFetch.AppendFormat("      ORDER BY {0} \n", string.Join(", ", keyColNames.Select(ccn => string.Format("[{0}]", ccn)).ToArray()));
-            sbFetch.AppendFormat("      ORDER BY [__ROWS__] \n");
+            sbFetch.AppendFormat("      ORDER BY {0} \n", string.Join(", ", keyColNames.Select(ccn => string.Format("[{0}]", ccn)).ToArray()));
+            //sbFetch.AppendFormat("      ORDER BY [__ROWS__] \n");
             sbFetch.AppendFormat("      ) \n"); // Complete 
 
             //
@@ -188,7 +188,7 @@ namespace DBBackfill
     {
         public static FetchKeyBoundary CreateFetchKeyComplete(this TableInfo srcTable, string keyColName = null)
         {
-            return srcTable.CreateFetchKeyComplete((keyColName == null) ? null : keyColName.Split(',').ToList());
+            return CreateFetchKeyComplete(srcTable, (keyColName == null) ? null : keyColName.Split(',').ToList());
         }
 
         public static FetchKeyBoundary CreateFetchKeyComplete(this TableInfo srcTable, List<string> keyColNames)
@@ -203,7 +203,7 @@ namespace DBBackfill
 
             //  Check for any partitioning performance problems
             //
-            if ((srcTable.IsPartitioned) && (srcTable.PtCol.ID != srcTable[keyColNames[0]].ID))
+            if ((srcTable.IsPartitioned) && (srcTable.PtCol.ID == srcTable[keyColNames[0]].ID))
             {
                 newFKB.FlgSelectByPartition = true;
             }

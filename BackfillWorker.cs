@@ -42,7 +42,6 @@ namespace DBBackfill
             //  Local information
             //
             bool isSameInstance = false;
-            //bool isDirect = false; // Will hold final decision on whether direct row fetching is allowed
             bool hasRestarted = false; // 
 
             int curFetchCount = 0; // Number of rows fetched from the source table
@@ -134,7 +133,6 @@ namespace DBBackfill
                 for (; ptIdx < ((fkb.FlgSelectByPartition) ? PartsNotEmpty.Count : 1); ptIdx++)
                 {
                     int curPartition = PartsNotEmpty[ptIdx];    // Current partition number
-
                     hasRestarted = true;  // Assume a restart at the start of each partition
 
                     //  
