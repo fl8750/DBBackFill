@@ -252,7 +252,7 @@ namespace DBBackfill
 
                                     if ((FillType == BackfillType.Merge) || (FillType == BackfillType.BulkInsertMerge))
                                     {
-                                        BulkInsertIntoTable(srcDt, trnMerge, dstConn, DstTempFullTableName, CopyColNames);
+                                        BulkInsertIntoTable(srcDt, trnMerge, dstConn, string.Concat("tempdb..",DstTempFullTableName), CopyColNames);
                                         using (SqlCommand cmdDstMerge = new SqlCommand(QryDataMerge, dstConn, trnMerge)) //  Destination datbase connection
                                         {
                                             cmdDstMerge.CommandTimeout = BkfCtrl.CommandTimeout; // Set the set timeout value
@@ -317,7 +317,7 @@ namespace DBBackfill
             {
                 BkfCtrl.CapturedException = ex; // Save the exception information 
                 Console.WriteLine(ex.Message);
-                throw ex;
+                throw new ApplicationException("Worker Error: ", ex);
             }
             finally
             {
@@ -437,59 +437,62 @@ namespace DBBackfill
             //
             //  Create the matched record portion of the MERGE command
             //
-            StringBuilder sbMatched = new StringBuilder();
+            //StringBuilder sbMatched = new StringBuilder();
 
-            List<TableColInfo> testCols = DstTable.Where(tci => (CopyColNames.Contains(tci.Name))).Where(tci => (!dstKeyNames.Contains(tci.Name))).ToList();
+            //List<TableColInfo> testCols = DstTable.Where(tci => (CopyColNames.Contains(tci.Name))).Where(tci => (!dstKeyNames.Contains(tci.Name))).ToList();
 
-            if (testCols.Count > 0)
-            {
-                sbMatched.AppendLine("WHEN MATCHED AND (");
-                for (int idx = 0; idx < testCols.Count; idx++)
-                {
-                    TableColInfo tci = testCols[idx];
-                    if ((!tci.IsComparable) || (tci.IsIdentity)) continue;
-                    sbMatched.Append("                                                  (");
-                    sbMatched.AppendFormat(
-                        tci.IsNullable
-                            ? @"(CASE WHEN (SRC.{0} IS NULL AND DST.{0} IS NULL) THEN 0 WHEN (SRC.{0} IS NULL OR DST.{0} IS NULL) THEN 1 
-                                                    WHEN ({1} <> {2}) THEN 1 ELSE 0 END) = 1"
-                            : @"{1} <> {2}",
-                        tci.NameQuoted,
-                        tci.CmpValue("SRC"),
-                        tci.CmpValue("DST"));
-                    sbMatched.AppendFormat(") {0} \n", (idx < (testCols.Count - 1)) ? "OR" : "");
-                }
-                sbMatched.AppendLine(") ");
+            //if (testCols.Count > 0)
+            //{
+            //    sbMatched.AppendLine("WHEN MATCHED AND (");
+            //    for (int idx = 0; idx < testCols.Count; idx++)
+            //    {
+            //        TableColInfo tci = testCols[idx];
+            //        if ((!tci.IsComparable) || (tci.IsIdentity)) continue;
+            //        sbMatched.Append("                                                  (");
+            //        sbMatched.AppendFormat(
+            //            tci.IsNullable
+            //                ? @"(CASE WHEN (SRC.{0} IS NULL AND DST.{0} IS NULL) THEN 0 WHEN (SRC.{0} IS NULL OR DST.{0} IS NULL) THEN 1 
+            //                                        WHEN ({1} <> {2}) THEN 1 ELSE 0 END) = 1"
+            //                : @"{1} <> {2}",
+            //            tci.NameQuoted,
+            //            tci.CmpValue("SRC"),
+            //            tci.CmpValue("DST"));
+            //        sbMatched.AppendFormat(") {0} \n", (idx < (testCols.Count - 1)) ? "OR" : "");
+            //    }
+            //    sbMatched.AppendLine(") ");
 
-                sbMatched.AppendLine("                                                    THEN UPDATE SET  ");
-                for (int idx = 0; idx < testCols.Count; idx++)
-                {
-                    TableColInfo tci = testCols[idx];
-                    if (tci.IsIdentity) continue; // skip updating an identity column
-                    sbMatched.AppendFormat("                                                      {0} = SRC.{0} ", tci.NameQuoted);
-                    sbMatched.AppendLine((idx < (testCols.Count - 1)) ? "," : "");
-                }
-            }
+            //    sbMatched.AppendLine("                                                    THEN UPDATE SET  ");
+            //    for (int idx = 0; idx < testCols.Count; idx++)
+            //    {
+            //        TableColInfo tci = testCols[idx];
+            //        if (tci.IsIdentity) continue; // skip updating an identity column
+            //        sbMatched.AppendFormat("                                                      {0} = SRC.{0} ", tci.NameQuoted);
+            //        sbMatched.AppendLine((idx < (testCols.Count - 1)) ? "," : "");
+            //    }
+            //}
 
-            string strMatched = sbMatched.ToString();
+            //string strMatched = sbMatched.ToString();
 
             //  Prepare the MERGE statement for the destination side
             //
             QryDataMerge = string.Format(@" 
         USE [{6}];
         SET NOCOUNT ON;
+        BEGIN TRANSACTION;
         DECLARE @mCount INT;
         {5}SET IDENTITY_INSERT {0} ON;                                     
-           MERGE INTO {0} AS DST 
-                USING {1} AS SRC
-                    ON ({2})
-                WHEN NOT MATCHED BY TARGET THEN 
-                    INSERT ({3})
-                    VALUES ({4})
-                {7};
+           DELETE DST
+                FROM {0} DST
+                INNER JOIN {1} SRC 
+                ON ({2});
+           INSERT INTO {0} 
+                    ({3})
+                SELECT {4}
+                    FROM {1} SRC;
         SET @mCount=@@ROWCOUNT;
         {5}SET IDENTITY_INSERT {0} OFF;
-        TRUNCATE TABLE {1};
+        TRUNCATE TABLE {1}
+        COMMIT TRANSACTION;
         SELECT @mCount;",
                 DstTable.FullTableName,
                 DstTempFullTableName,
@@ -497,9 +500,20 @@ namespace DBBackfill
                 string.Join(", ", CopyColNames.Select(dc => SrcTable[dc].NameQuoted).ToArray()),
                 string.Join(", ", CopyColNames.Select(sd => string.Format("SRC.{0}", SrcTable[sd].NameQuoted)).ToArray()),
                 (DstTable.HasIdentity) ? "" : "-- ",
-                DstTable.DbName,
-                strMatched
+                DstTable.DbName
+               // ,strMatched
                 );
+
+
+            //MERGE INTO { 0}
+            //AS DST
+            //USING { 1}
+            //AS SRC
+            //ON({ 2})
+            //WHEN NOT MATCHED BY TARGET THEN
+            //INSERT({ 3})
+            //VALUES({ 4})
+            //{ 7};
         }
 
     }
