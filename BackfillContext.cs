@@ -10,6 +10,7 @@ namespace DBBackfill
     {
         BulkInsert = 1, // Bulk insert into dest table
         BulkInsertMerge, // Bulk insert into dest table with fallback to merge
+        GapFill, // Find gaps in the destination table and insert the proper source data row
         Merge // Merge data into dest table3
     }
 

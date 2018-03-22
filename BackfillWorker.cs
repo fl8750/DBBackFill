@@ -479,21 +479,23 @@ namespace DBBackfill
         USE [{6}];
         SET NOCOUNT ON;
         BEGIN TRANSACTION;
-        DECLARE @mCount INT;
+        DECLARE @delCount INT;
+        DECLARE @insCount INT;
         {5}SET IDENTITY_INSERT {0} ON;                                     
-           DELETE DST
-                FROM {0} DST
+        DELETE SRC
+            FROM {0} DST
                 INNER JOIN {1} SRC 
                 ON ({2});
-           INSERT INTO {0} 
+        SET @delCount=@@ROWCOUNT;
+        INSERT INTO {0} 
                     ({3})
                 SELECT {4}
                     FROM {1} SRC;
-        SET @mCount=@@ROWCOUNT;
+        SET @insCount=@@ROWCOUNT;
         {5}SET IDENTITY_INSERT {0} OFF;
         TRUNCATE TABLE {1}
         COMMIT TRANSACTION;
-        SELECT @mCount;",
+        SELECT @delCount AS [_DelCount_], @insCount AS [_InsCount_];",
                 DstTable.FullTableName,
                 DstTempFullTableName,
                 string.Join(" AND ", dstKeyNames.Where(kc => (SrcTable[kc].IsComparable)).Select(kc => string.Format("(SRC.{0} = DST.{0})", DstTable[kc].NameQuoted)).ToArray()),

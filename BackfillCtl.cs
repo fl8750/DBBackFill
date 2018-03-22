@@ -27,13 +27,7 @@ namespace DBBackfill
 
     public class BackfillCtl 
     {
-        //[Flags]
-        //public enum BackFillOperation
-        //{
-        //    InsertMissing = 1,
-        //    UpdateExisting = 2
-        //}
-
+ 
         //  Private 
         //
         private readonly InstanceInfoList _instances = new InstanceInfoList();

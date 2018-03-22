@@ -34,8 +34,8 @@ namespace DBBackfill
         public List<object> EndKeyList { get; private set; }
         private List<object> _restartKeyList { get; set; }
 
-        public List<object> StartKeys_orig { get; private set; }
-        public List<object> EndKeys_orig { get; private set; }
+        //public List<object> StartKeys_orig { get; private set; }
+        //public List<object> EndKeys_orig { get; private set; }
 
         public BackfillType FillType = BackfillType.BulkInsert;
 
@@ -60,6 +60,11 @@ namespace DBBackfill
         public void AddRestartKey(object newKey)
         {
             _restartKeyList.Add(newKey);
+        }
+
+        public void AddEndKey(object newKey)
+        {
+            EndKeyList.Add(newKey);
         }
 
         //  Constructed SQL commands
