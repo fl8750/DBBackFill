@@ -113,7 +113,8 @@ namespace DBBackfill
                         PartSizesAll.Count, PartsNotEmpty.Count
                         ));
 
-                PrepareWorker((IsSrcDstEqual) ? dstConn : srcConn, dstKeyNames); // Setup the needed SQL environment
+                if (FillType != BackfillType.BulkInsert)
+                    PrepareWorker((IsSrcDstEqual) ? srcConn : dstConn, dstKeyNames); // Setup the needed SQL environment
 
                 //  Reset data pump loop counters
                 //
@@ -252,11 +253,22 @@ namespace DBBackfill
 
                                     if ((FillType == BackfillType.Merge) || (FillType == BackfillType.BulkInsertMerge))
                                     {
-                                        BulkInsertIntoTable(srcDt, trnMerge, dstConn, string.Concat("tempdb..",DstTempFullTableName), CopyColNames);
+                                        //BulkInsertIntoTable(srcDt, trnMerge, dstConn, string.Concat("tempdb..", DstTempFullTableName), CopyColNames);
+                                        BulkInsertIntoTable(srcDt, trnMerge, dstConn, DstTempFullTableName, CopyColNames);
                                         using (SqlCommand cmdDstMerge = new SqlCommand(QryDataMerge, dstConn, trnMerge)) //  Destination datbase connection
                                         {
                                             cmdDstMerge.CommandTimeout = BkfCtrl.CommandTimeout; // Set the set timeout value
-                                            curMergeCount = (int) cmdDstMerge.ExecuteScalar();
+                                            using (DataTable dtMerge = new DataTable())
+                                            {
+                                                using (SqlDataReader mrgRdr = cmdDstMerge.ExecuteReader()) // Merge the bulk insert rows and return stats
+                                                {
+                                                    dtMerge.Load(mrgRdr); // Load the data into a DataTable
+                                                    mrgRdr.Close(); // Close the reader
+                                                }
+
+                                                curMergeCount = (int)dtMerge.Rows[0]["_InsCount_"];
+                                                int curDelCount = (int)dtMerge.Rows[0]["_DelCount_"];
+                                            }
                                         }
                                     }
 
@@ -266,7 +278,7 @@ namespace DBBackfill
                                 catch (Exception ex)
                                 {
                                     trnMerge.Rollback();
-                                    throw ex;
+                                    throw new ApplicationException("BackfillWorkerLoop", ex);
                                 }
                             }
                         }
@@ -317,6 +329,12 @@ namespace DBBackfill
             {
                 BkfCtrl.CapturedException = ex; // Save the exception information 
                 Console.WriteLine(ex.Message);
+                Console.WriteLine(ex.StackTrace);
+                if (ex.InnerException != null)
+                {
+                    Console.WriteLine(ex.InnerException.Message);
+                    Console.WriteLine(ex.InnerException.StackTrace);
+                }
                 throw new ApplicationException("Worker Error: ", ex);
             }
             finally
@@ -408,7 +426,7 @@ namespace DBBackfill
                 string strCreateWTab = @"
                                     SELECT *
                                         INTO {2}
-                                        FROM [{0}].{1}
+                                        FROM [{0}].[{1}]
                                         WHERE 1=0;
                                     CREATE UNIQUE CLUSTERED INDEX [UCI_{3}_{4}] 
                                         ON {2} ({5});";
@@ -493,7 +511,7 @@ namespace DBBackfill
                     FROM {1} SRC;
         SET @insCount=@@ROWCOUNT;
         {5}SET IDENTITY_INSERT {0} OFF;
-        TRUNCATE TABLE {1}
+        --TRUNCATE TABLE {1}
         COMMIT TRANSACTION;
         SELECT @delCount AS [_DelCount_], @insCount AS [_InsCount_];",
                 DstTable.FullTableName,
