@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.Data;
 using System.Data.SqlClient;
 using System.Linq;
-using System.Text;
-
 
 namespace DBBackfill
 {
@@ -253,7 +251,6 @@ namespace DBBackfill
 
                                     if ((FillType == BackfillType.Merge) || (FillType == BackfillType.BulkInsertMerge))
                                     {
-                                        //BulkInsertIntoTable(srcDt, trnMerge, dstConn, string.Concat("tempdb..", DstTempFullTableName), CopyColNames);
                                         BulkInsertIntoTable(srcDt, trnMerge, dstConn, DstTempFullTableName, CopyColNames);
                                         using (SqlCommand cmdDstMerge = new SqlCommand(QryDataMerge, dstConn, trnMerge)) //  Destination datbase connection
                                         {
@@ -352,9 +349,9 @@ namespace DBBackfill
         //
         private int BulkInsertIntoTable(DataTable srcDt, SqlTransaction trnActive, SqlConnection dstConn, string destTableName, List<string> copyColNames)
         {
-            SqlBulkCopyOptions bcpyOpts = (DstTable.HasIdentity)
-                ? (SqlBulkCopyOptions.KeepIdentity | SqlBulkCopyOptions.KeepNulls)
-                : SqlBulkCopyOptions.KeepNulls;
+            SqlBulkCopyOptions bcpyOpts = SqlBulkCopyOptions.KeepNulls | SqlBulkCopyOptions.CheckConstraints | SqlBulkCopyOptions.FireTriggers ;
+            if (DstTable.HasIdentity) bcpyOpts |= SqlBulkCopyOptions.KeepIdentity;
+
             using (SqlBulkCopy bulkCopy = new SqlBulkCopy(dstConn, bcpyOpts, trnActive))
             {
                 try
@@ -373,6 +370,7 @@ namespace DBBackfill
                             bulkCopy.ColumnMappings.Add(newCMap);
                         }
                     }
+
                     bulkCopy.WriteToServer(srcDt); // Write from the source to the destination.
                     return srcDt.Rows.Count;
                 }
