@@ -137,21 +137,25 @@ namespace DBBackfill
             string strArticleColInfo = @"
     USE [{0}]; 
     WITH    IDXC
-          AS ( SELECT   *
-               FROM     ( SELECT    IDX.[object_id] ,
+          AS ( 		  
+			SELECT   *,
+						ROW_NUMBER() OVER (PARTITION BY IDXC2.[object_id], IDXC2.column_id ORDER BY IDXC2.IndexPriority) AS ColPrio
+               FROM     ( SELECT    DISTINCT
+									IDX.[object_id] ,
                                     IDX.index_id ,
+									IDX.[type],
                                     IDX.is_unique ,
                                     IDC.column_id ,
                                     IDC.key_ordinal ,
                                     IDC.is_descending_key ,
-                                    IDC.partition_ordinal ,
-                                    DENSE_RANK() OVER ( PARTITION BY IDC.[object_id] ORDER BY IDX.is_unique DESC, IDX.index_id ) AS IndexPriority
+                                    IDC.partition_ordinal 
+                                    ,DENSE_RANK() OVER ( PARTITION BY IDC.[object_id] ORDER BY IDX.is_unique DESC, IDX.index_id ) AS IndexPriority
                           FROM      sys.indexes IDX
                                     INNER JOIN sys.index_columns IDC ON ( IDX.[object_id] = IDC.[object_id] )
                                                                         AND ( IDX.[index_id] = IDC.[index_id] )
-                        ) IDXC2
-               WHERE    ( IDXC2.IndexPriority = 1 )
+                        ) IDXC2				
              )
+
          SELECT   TAB.[object_id] ,
                         TAB.[schema_id] ,
                         SCH.name AS SchemaName ,
@@ -169,7 +173,7 @@ namespace DBBackfill
                         IC.is_computed ,
                         COALESCE(IDXC.key_ordinal, 0) AS key_ordinal ,
                         COALESCE(IDXC.is_descending_key, 0) AS is_descending_key ,
-                        MAX(COALESCE(IDXC.partition_ordinal, 0)) OVER ( PARTITION BY TAB.[object_id] ) AS is_partitioned ,
+                        CAST(IDXC.partition_ordinal AS INT) AS is_partitioned ,
                         COALESCE(IDXC.partition_ordinal, 0) AS partition_ordinal ,
                         COALESCE(PS.[name], '') AS PtScheme ,
                         COALESCE(PF.[name], '') AS PtFunc
@@ -178,17 +182,19 @@ namespace DBBackfill
                         INNER JOIN sys.indexes IDX ON ( TAB.[object_id] = IDX.[object_id] )
                         INNER JOIN sys.columns IC ON ( TAB.[object_id] = IC.[object_id] )
                         INNER JOIN sys.types TYP ON ( IC.user_type_id = TYP.user_type_id )
-                        LEFT OUTER JOIN /* sys.index_columns */ IDXC ON ( IDX.[object_id] = IDXC.[object_id] )
-                                                                        AND ( IDX.index_id = IDXC.index_id )
+                        LEFT OUTER JOIN /* sys.index_columns */ IDXC ON ( TAB.[object_id] = IDXC.[object_id] )
+                                                                       -- AND ( IDX.index_id = IDXC.index_id )
                                                                         AND ( IC.column_id = IDXC.column_id )
                         LEFT JOIN ( sys.partition_schemes PS
                                     INNER JOIN sys.Partition_functions PF ON ( PS.function_id = PF.function_id )
                                   ) ON ( IDX.data_space_id = PS.data_space_id )
                WHERE    ( TAB.is_ms_shipped = 0 )
                         AND ( IDX.[type] IN ( 0, 1, 5 ) )
+						AND (IDXC.ColPrio = 1)
+
                ORDER BY SchemaName ,
                         TableName ,
-                        column_id";
+                        column_id;";
 
             DataTable dtTblColInfo = new DataTable();
             using (SqlCommand cmdArtcol = new SqlCommand(string.Format(strArticleColInfo, dbName), dbConn))

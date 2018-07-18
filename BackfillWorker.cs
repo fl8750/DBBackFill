@@ -112,7 +112,7 @@ namespace DBBackfill
                         ));
 
                 if (FillType != BackfillType.BulkInsert)
-                    PrepareWorker((IsSrcDstEqual) ? srcConn : dstConn, dstKeyNames); // Setup the needed SQL environment
+                    PrepareWorker(srcConn, dstConn, dstKeyNames); // Setup the needed SQL environment
 
                 //  Reset data pump loop counters
                 //
@@ -243,13 +243,13 @@ namespace DBBackfill
                                     //  Setup for the SqlBulk Insert to the destination temp table
                                     //
                                     curMergeCount = 0;
-                                    if ((FillType == BackfillType.BulkInsert) || (FillType == BackfillType.BulkInsertMerge))
+                                    if ((FillType == BackfillType.BulkInsert) /* || (FillType == BackfillType.BulkInsertMerge) */ )
                                     {
                                         BulkInsertIntoTable(srcDt, trnMerge, dstConn, DstTable.FullTableName, CopyColNames);
                                         curMergeCount = srcDt.Rows.Count;
                                     }
 
-                                    if ((FillType == BackfillType.Merge) || (FillType == BackfillType.BulkInsertMerge))
+                                    if ((FillType == BackfillType.Merge) /* || (FillType == BackfillType.BulkInsertMerge) */ )
                                     {
                                         BulkInsertIntoTable(srcDt, trnMerge, dstConn, DstTempFullTableName, CopyColNames);
                                         using (SqlCommand cmdDstMerge = new SqlCommand(QryDataMerge, dstConn, trnMerge)) //  Destination datbase connection
@@ -303,9 +303,12 @@ namespace DBBackfill
 
                 //  Remove the temp table after we are finished with this table
                 //
-                using (SqlCommand cmdDstTruc = new SqlCommand(string.Format("DROP TABLE {0} ", DstTempFullTableName), dstConn)) //  Destination datbase connection
+                if ((FillType == BackfillType.Merge) /*|| (FillType == BackfillType.BulkInsertMerge) */ )
                 {
-                    cmdDstTruc.ExecuteNonQuery();
+                    using (SqlCommand cmdDstTruc = new SqlCommand(string.Format("DROP TABLE {0} ", DstTempFullTableName), dstConn)) //  Destination datbase connection
+                    {
+                        cmdDstTruc.ExecuteNonQuery();
+                    }
                 }
 
                 // Completion messages
@@ -324,13 +327,14 @@ namespace DBBackfill
             }
             catch (Exception ex)
             {
+                Exception ex2 = ex;
                 BkfCtrl.CapturedException = ex; // Save the exception information 
-                Console.WriteLine(ex.Message);
-                Console.WriteLine(ex.StackTrace);
-                if (ex.InnerException != null)
+
+                while (ex2 != null)
                 {
-                    Console.WriteLine(ex.InnerException.Message);
-                    Console.WriteLine(ex.InnerException.StackTrace);
+                    Console.WriteLine(ex.Message);
+                    Console.WriteLine(ex.StackTrace);
+                    ex2 = ex2.InnerException;
                 }
                 throw new ApplicationException("Worker Error: ", ex);
             }
@@ -388,7 +392,7 @@ namespace DBBackfill
         //
         //  Prepare the destination database, work table and query texts for the backfill operation
         //
-        public void PrepareWorker(SqlConnection dstConn, List<string> dstKeyNames)
+        public void PrepareWorker(SqlConnection srcConn, SqlConnection dstConn, List<string> dstKeyNames)
         {
             string strSavedDatabase = string.Empty;
 
@@ -404,7 +408,7 @@ namespace DBBackfill
                     if (IsSrcDstEqual)
                     {
                         dstConn.ChangeDatabase("tempdb"); // Switch to the temp datababse
-                        sqlTableDrop = string.Format(@"IF OBJECT_ID('tempdb..[{0}]') IS NOT NULL DROP TABLE [{0}]; ", DstTempTableName);
+                        sqlTableDrop = string.Format(@"IF OBJECT_ID('tempdb..[{0}]') IS NOT NULL DROP TABLE {1}; ", DstTempTableName, DstTempFullTableName);
                         dstConn.ChangeDatabase(strSavedDatabase); // Switch to the temp datababse
                     }
                     else
@@ -424,7 +428,7 @@ namespace DBBackfill
                 string strCreateWTab = @"
                                     SELECT *
                                         INTO {2}
-                                        FROM [{0}].[{1}]
+                                        FROM [{0}].{1}
                                         WHERE 1=0;
                                     CREATE UNIQUE CLUSTERED INDEX [UCI_{3}_{4}] 
                                         ON {2} ({5});";
@@ -498,7 +502,7 @@ namespace DBBackfill
         DECLARE @delCount INT;
         DECLARE @insCount INT;
         {5}SET IDENTITY_INSERT {0} ON;                                     
-        DELETE SRC
+        DELETE DST
             FROM {0} DST
                 INNER JOIN {1} SRC 
                 ON ({2});
@@ -509,7 +513,7 @@ namespace DBBackfill
                     FROM {1} SRC;
         SET @insCount=@@ROWCOUNT;
         {5}SET IDENTITY_INSERT {0} OFF;
-        --TRUNCATE TABLE {1}
+        TRUNCATE TABLE {1}
         COMMIT TRANSACTION;
         SELECT @delCount AS [_DelCount_], @insCount AS [_InsCount_];",
                 DstTable.FullTableName,
