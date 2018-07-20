@@ -33,6 +33,44 @@ namespace DBBackfill
         }
 
         public string Datatype { get; set; }
+        public string DatatypeFull
+        {
+            get
+            {
+                switch (Datatype)
+                {
+                    case "char":
+                    case "nchar":
+                    case "varchar":
+                    case "nvarchar":
+                    case "binary":
+                    case "varbinary":
+                        return string.Format("{0}({1})", Datatype, (MaxLength >= 0) ? MaxLength.ToString() : "MAX");
+                        break;
+
+                    case "datetime2":
+                    case "datetimeoffset":
+                        return string.Format("{0}({1})", Datatype, Scale);
+                        break;
+
+                    case "numeric":
+                    case "decimal":
+                        return string.Format("{0}({1},{2})", Datatype, Precision, Scale);
+                        break;
+
+                    case "real":
+                    case "float":
+                        return string.Format("{0}({1})", Datatype, Precision);
+                        break;
+
+                    default:
+                        return Datatype;
+                        break;
+                }
+
+                return null;
+            }
+        }
 
         public int ID;
         public int MaxLength = 0;
@@ -99,6 +137,11 @@ namespace DBBackfill
         public void Add(TableColInfo newCol)
         {
             _colList.Add(newCol.ID, newCol);
+        }
+
+        public Dictionary<int, TableColInfo> Columns
+        {
+            get { return _colList; }
         }
 
         //  Enumerable

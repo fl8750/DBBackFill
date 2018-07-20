@@ -54,6 +54,11 @@ namespace DBBackfill
             get { return _columns[colID]; }
         }
         
+        public Dictionary<int, TableColInfo> Columns
+        {
+            get { return _columns.Columns; }
+        }
+
         public void AddColumn(TableColInfo newCol)
         {
             _columns.Add(newCol);
@@ -141,18 +146,23 @@ namespace DBBackfill
 			SELECT   *,
 						ROW_NUMBER() OVER (PARTITION BY IDXC2.[object_id], IDXC2.column_id ORDER BY IDXC2.IndexPriority) AS ColPrio
                FROM     ( SELECT    DISTINCT
-									IDX.[object_id] ,
+									TBL.[object_id] ,
                                     IDX.index_id ,
 									IDX.[type],
                                     IDX.is_unique ,
-                                    IDC.column_id ,
-                                    IDC.key_ordinal ,
-                                    IDC.is_descending_key ,
-                                    IDC.partition_ordinal 
-                                    ,DENSE_RANK() OVER ( PARTITION BY IDC.[object_id] ORDER BY IDX.is_unique DESC, IDX.index_id ) AS IndexPriority
-                          FROM      sys.indexes IDX
-                                    INNER JOIN sys.index_columns IDC ON ( IDX.[object_id] = IDC.[object_id] )
-                                                                        AND ( IDX.[index_id] = IDC.[index_id] )
+                                    COL.column_id ,
+                                    COALESCE(IDC.key_ordinal, 0) AS key_ordinal ,
+                                    COALESCE(IDC.is_descending_key , 0) AS is_descending_key,
+                                    COALESCE(IDC.partition_ordinal, 0) AS partition_ordinal
+                                    ,DENSE_RANK() OVER ( PARTITION BY TBL.[object_id] ORDER BY IDX.is_unique DESC, IDX.index_id ) AS IndexPriority
+	 FROM (sys.tables TBL 
+		INNER JOIN sys.columns COL ON (TBL.[object_id] = COL.[object_id]))
+		LEFT OUTER JOIN 
+	(sys.indexes IDX
+		INNER JOIN sys.index_columns IDC ON ( IDX.[object_id] = IDC.[object_id] )
+                                                                        AND ( IDX.[index_id] = IDC.[index_id] ))
+						ON (TBL.[object_id] = IDX.[object_id] ) AND (COL.column_id = IDC.column_id)
+	WHERE TBL.[object_id] = 1554820601
                         ) IDXC2				
              )
 

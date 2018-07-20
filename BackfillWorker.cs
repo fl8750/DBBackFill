@@ -260,7 +260,7 @@ namespace DBBackfill
                                                 using (SqlDataReader mrgRdr = cmdDstMerge.ExecuteReader()) // Merge the bulk insert rows and return stats
                                                 {
                                                     dtMerge.Load(mrgRdr); // Load the data into a DataTable
-                                                    mrgRdr.Close(); // Close the reader
+                                                    mrgRdr.Close(); // Close the reader)
                                                 }
 
                                                 curMergeCount = (int)dtMerge.Rows[0]["_InsCount_"];
