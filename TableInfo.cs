@@ -162,7 +162,6 @@ namespace DBBackfill
 		INNER JOIN sys.index_columns IDC ON ( IDX.[object_id] = IDC.[object_id] )
                                                                         AND ( IDX.[index_id] = IDC.[index_id] ))
 						ON (TBL.[object_id] = IDX.[object_id] ) AND (COL.column_id = IDC.column_id)
-	WHERE TBL.[object_id] = 1554820601
                         ) IDXC2				
              )
 

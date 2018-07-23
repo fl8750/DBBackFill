@@ -164,12 +164,24 @@ SELECT  {1}
                             (iidx + 1));
                         if ((oidx - iidx) > 1) sbWhere.Append(" AND ");
                     }
-
                     sbWhere.Append(")");
                     if (oidx > 1) sbWhere.AppendLine(" OR ");
                 }
-
                 sbWhere.AppendLine(") \n");
+
+                //  Create th SqlParameters for this command
+                //
+                for (int idx = 0; idx < ekCnt; ++idx) // Prepare the start key value parameters
+                {
+                    string pName = string.Format("@ek{0}", idx + 1);
+                    if (!srcCmd.Parameters.Contains(pName))
+                    {
+                        SqlDbType dbType = (SqlDbType)Enum.Parse(typeof(SqlDbType), srcTable[keyColNames[idx]].Datatype, true);
+                        srcCmd.Parameters.Add(pName, new SqlParameter(pName, dbType));
+                    }
+                    srcCmd.Parameters[pName].Value = EndKeyList[idx];
+                }
+
             }
 
             // Now build the full fetch script
@@ -232,8 +244,21 @@ SELECT  {1}
                     sbFetch.Append(")");
                     if (oidx > 1) sbFetch.AppendLine(" OR ");
                 }
-
                 sbFetch.AppendLine(") \n");
+
+                //  Create the SqlParameters needed for this command
+                //
+                for (int idx = 0; idx < skCnt; ++idx) // Prepare the start key value parameters
+                {
+                    string pName = string.Format("@sk{0}", idx + 1);
+                    if (!srcCmd.Parameters.Contains(pName))
+                    {
+                        SqlDbType dbType = (SqlDbType)Enum.Parse(typeof(SqlDbType), srcTable[keyColNames[idx]].Datatype, true);
+                        srcCmd.Parameters.Add(pName, new SqlParameter(pName, dbType));
+                    }
+                    srcCmd.Parameters[pName].Value = curKeys[idx];
+                }
+
             }
 
             //  Construct the end key limit boolean expression
