@@ -109,7 +109,7 @@ SELECT  {1}
 
             //  If required, fetch rows from each partition individually (performance)
             //
-            if (FlgSelectByPartition)
+            if ((FlgSelectByPartition) && (srcTable.PtFunc != null))
             {
                 sbWhere.AppendFormat("       WHERE ($PARTITION.[{0}]({1}) = {2}) \n", srcTable.PtFunc, srcTable.PtCol.NameQuoted, partNumber);
                 ++whereCnt;
@@ -122,28 +122,30 @@ SELECT  {1}
             {
                 sbWhere.AppendFormat("      {0} \n", (whereCnt++ == 0) ? "WHERE" : "AND"); // Add the proper keyword
 
-                sbWhere.Append("        ("); // Construct the logical clauses to mark the beginning of the fetch range
-                for (int oidx = skCnt; oidx > 0; oidx--)
-                {
-                    sbWhere.Append("(");
-                    for (int iidx = 0; iidx < oidx; ++iidx)
-                    {
-                        sbWhere.AppendFormat("({0} {1} @sk{2})",
-                            srcTable[keyColNames[iidx]].NameQuoted,
-                            ((oidx - iidx) > 1)
-                                ? "="
-                                : ((iidx + 1) == skCnt)
-                                    ? ((isFirstFetch) ? ">=" : ">")
-                                    : ">",
-                            (iidx + 1));
-                        if ((oidx - iidx) > 1) sbWhere.Append(" AND ");
-                    }
+                BuildKeyCompare(sbWhere, srcTable, keyColNames, "sk", skCnt, true, isFirstFetch);
 
-                    sbWhere.Append(")");
-                    if (oidx > 1) sbWhere.AppendLine(" OR ");
-                }
+                //sbWhere.Append("        ("); // Construct the logical clauses to mark the beginning of the fetch range
+                //for (int oidx = skCnt; oidx > 0; oidx--)
+                //{
+                //    sbWhere.Append("(");
+                //    for (int iidx = 0; iidx < oidx; ++iidx)
+                //    {
+                //        sbWhere.AppendFormat("({0} {1} @sk{2})",
+                //            srcTable[keyColNames[iidx]].NameQuoted,
+                //            ((oidx - iidx) > 1)
+                //                ? "="
+                //                : ((iidx + 1) == skCnt)
+                //                    ? ((isFirstFetch) ? ">=" : ">")
+                //                    : ">",
+                //            (iidx + 1));
+                //        if ((oidx - iidx) > 1) sbWhere.Append(" AND ");
+                //    }
 
-                sbWhere.AppendLine(") \n");
+                //    sbWhere.Append(")");
+                //    if (oidx > 1) sbWhere.AppendLine(" OR ");
+                //}
+
+                //sbWhere.AppendLine(") \n");
             }
 
             //  Construct the end key limit boolean expression
@@ -152,22 +154,28 @@ SELECT  {1}
             {
                 sbWhere.AppendFormat("      {0} \n", (whereCnt++ == 0) ? "WHERE" : "AND"); // Add the proper keyword
 
-                sbWhere.Append("        (");
-                for (int oidx = ekCnt; oidx > 0; oidx--)
-                {
-                    sbWhere.Append("(");
-                    for (int iidx = 0; iidx < oidx; ++iidx)
-                    {
-                        sbWhere.AppendFormat("({0} {1} @ek{2})",
-                            srcTable[keyColNames[iidx]].NameQuoted,
-                            ((oidx - iidx) > 1) ? "=" : ((iidx + 1) == ekCnt) ? "<=" : "<",
-                            (iidx + 1));
-                        if ((oidx - iidx) > 1) sbWhere.Append(" AND ");
-                    }
-                    sbWhere.Append(")");
-                    if (oidx > 1) sbWhere.AppendLine(" OR ");
-                }
-                sbWhere.AppendLine(") \n");
+                BuildKeyCompare(sbWhere, srcTable, keyColNames, "ek", ekCnt, false);
+
+                //sbWhere.Append("        (");
+                //for (int oidx = ekCnt; oidx > 0; oidx--)
+                //{
+                //    sbWhere.Append("(");
+                //    for (int iidx = 0; iidx < oidx; ++iidx)
+                //    {
+                //        sbWhere.AppendFormat("({0} {1} @ek{2})",
+                //            srcTable[keyColNames[iidx]].NameQuoted,
+                //            ((oidx - iidx) > 1) 
+                //                ? "=" 
+                //                : ((iidx + 1) == ekCnt) 
+                //                    ? "<=" 
+                //                    : "<",
+                //            (iidx + 1));
+                //        if ((oidx - iidx) > 1) sbWhere.Append(" AND ");
+                //    }
+                //    sbWhere.Append(")");
+                //    if (oidx > 1) sbWhere.AppendLine(" OR ");
+                //}
+                //sbWhere.AppendLine(") \n");
 
                 //  Create th SqlParameters for this command
                 //
@@ -212,7 +220,7 @@ SELECT  {1}
 
             //  If required, fetch rows from each partition individually (performance)
             //
-            if (FlgSelectByPartition)
+            if ((FlgSelectByPartition) && (srcTable.PtFunc != null))
             {
                 sbFetch.AppendFormat("       WHERE ($PARTITION.[{0}]({1}) = {2}) \n", srcTable.PtFunc, srcTable.PtCol.NameQuoted, partNumber);
                 ++whereCnt;
@@ -224,27 +232,29 @@ SELECT  {1}
             {
                 sbFetch.AppendFormat("      {0} \n", (whereCnt++ == 0) ? "WHERE" : "AND"); // Add the proper keyword
 
-                sbFetch.Append("        ("); // Construct the logical clauses to mark the beginning of the fetch range
-                for (int oidx = skCnt; oidx > 0; oidx--)
-                {
-                    sbFetch.Append("(");
-                    for (int iidx = 0; iidx < oidx; ++iidx)
-                    {
-                        sbFetch.AppendFormat("({0} {1} @sk{2})",
-                            srcTable[keyColNames[iidx]].NameQuoted,
-                            ((oidx - iidx) > 1)
-                                ? "="
-                                : ((iidx + 1) == skCnt)
-                                    ? ((isFirstFetch) ? ">=" : ">")
-                                    : ">",
-                            (iidx + 1));
-                        if ((oidx - iidx) > 1) sbFetch.Append(" AND ");
-                    }
+                BuildKeyCompare(sbFetch, srcTable, keyColNames, "sk", skCnt, true, isFirstFetch);
 
-                    sbFetch.Append(")");
-                    if (oidx > 1) sbFetch.AppendLine(" OR ");
-                }
-                sbFetch.AppendLine(") \n");
+                //sbFetch.Append("        ("); // Construct the logical clauses to mark the beginning of the fetch range
+                //for (int oidx = skCnt; oidx > 0; oidx--)
+                //{
+                //    sbFetch.Append("(");
+                //    for (int iidx = 0; iidx < oidx; ++iidx)
+                //    {
+                //        sbFetch.AppendFormat("({0} {1} @sk{2})",
+                //            srcTable[keyColNames[iidx]].NameQuoted,
+                //            ((oidx - iidx) > 1)
+                //                ? "="
+                //                : ((iidx + 1) == skCnt)
+                //                    ? ((isFirstFetch) ? ">=" : ">")
+                //                    : ">",
+                //            (iidx + 1));
+                //        if ((oidx - iidx) > 1) sbFetch.Append(" AND ");
+                //    }
+
+                //    sbFetch.Append(")");
+                //    if (oidx > 1) sbFetch.AppendLine(" OR ");
+                //}
+                //sbFetch.AppendLine(") \n");
 
                 //  Create the SqlParameters needed for this command
                 //
@@ -267,28 +277,30 @@ SELECT  {1}
             //{
             sbFetch.AppendFormat("      {0} \n", (whereCnt++ == 0) ? "WHERE" : "AND"); // Add the proper keyword
 
-            sbFetch.Append("        (");
-            for (int oidx = keyColNames.Count; oidx > 0; oidx--)
-            {
-                sbFetch.Append("(");
-                for (int iidx = 0; iidx < oidx; ++iidx)
-                {
-                    sbFetch.AppendFormat("({0} {1} @lk{2})",
-                        srcTable[keyColNames[iidx]].NameQuoted,
-                        ((oidx - iidx) > 1) 
-                            ? "=" 
-                            : ((iidx + 1) == keyColNames.Count) 
-                                ? "<=" 
-                                : "<",
-                        (iidx + 1));
-                    if ((oidx - iidx) > 1) sbFetch.Append(" AND ");
-                }
+            BuildKeyCompare(sbFetch, srcTable, keyColNames, "lk", keyColNames.Count, false);
 
-                sbFetch.Append(")");
-                if (oidx > 1) sbFetch.AppendLine(" OR ");
-            }
+            //sbFetch.Append("        (");
+            //for (int oidx = keyColNames.Count; oidx > 0; oidx--)
+            //{
+            //    sbFetch.Append("(");
+            //    for (int iidx = 0; iidx < oidx; ++iidx)
+            //    {
+            //        sbFetch.AppendFormat("({0} {1} @lk{2})",
+            //            srcTable[keyColNames[iidx]].NameQuoted,
+            //            ((oidx - iidx) > 1) 
+            //                ? "=" 
+            //                : ((iidx + 1) == keyColNames.Count) 
+            //                    ? "<=" 
+            //                    : "<",
+            //            (iidx + 1));
+            //        if ((oidx - iidx) > 1) sbFetch.Append(" AND ");
+            //    }
 
-            sbFetch.AppendLine(") \n");
+            //    sbFetch.Append(")");
+            //    if (oidx > 1) sbFetch.AppendLine(" OR ");
+            //}
+
+            //sbFetch.AppendLine(") \n");
             //}
 
 
@@ -441,6 +453,45 @@ SELECT  {1}
 
             //return;
         }
+
+
+        private void BuildKeyCompare(StringBuilder sbOut, TableInfo srcTable, List<string> keyColNames, string keyPrefix, int keyValueCount, 
+                                       bool isLowerLimit, bool isFirstFetch = false)
+        {
+            sbOut.Append("        ("); // Construct the logical clauses to mark the beginning of the fetch range
+            for (int oidx = keyValueCount; oidx > 0; oidx--)
+            {
+                sbOut.Append("(");
+                for (int iidx = 0; iidx < oidx; ++iidx)
+                {
+                    sbOut.AppendFormat("({0} {1} @{3}{2})",
+                        srcTable[keyColNames[iidx]].NameQuoted,
+                        ((oidx - iidx) > 1)
+                            ? "="
+                            : (isLowerLimit)
+                                ? ((iidx + 1) == keyValueCount) 
+                                    ? ((isFirstFetch) ? ">=" : ">") 
+                                    : ">"
+                                : ((iidx + 1) == keyValueCount)
+                                    ? "<="
+                                    : "<",
+                        (iidx + 1),
+                        keyPrefix);
+                    if ((oidx - iidx) > 1) sbOut.Append(" AND ");
+                }
+
+                sbOut.Append(")");
+                if (oidx > 1)
+                { 
+                    sbOut.AppendLine(" OR ");
+                    sbOut.Append("        ");
+                }
+            }
+
+            sbOut.AppendLine(") \n");
+        }
+
+
 
         //  Constructors
         //

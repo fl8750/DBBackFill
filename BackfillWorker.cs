@@ -73,13 +73,14 @@ namespace DBBackfill
             try
             {
                 //  Start 
-                BkfCtrl.DebugOutput(string.Format("Backfill Start [{0}].[{1}].{2} --> [{3}].[{4}].{5}\n",
+                BkfCtrl.DebugOutput(string.Format("Backfill Start v{6} -- [{0}].[{1}].{2} --> [{3}].[{4}].{5}\n",
                         SrcTable.InstanceName,
                         SrcTable.DbName,
                         SrcTable.FullTableName,
                         DstTable.InstanceName,
                         DstTable.DbName,
-                        DstTable.FullTableName
+                        DstTable.FullTableName,
+                        this.BkfCtrl.Version
                        ));
 
                 //  Get the partition sizing info if "partition selection" is required
@@ -291,7 +292,7 @@ namespace DBBackfill
                                 curMergeCount,
                                 MergeRowCount,
                                 ((currentFKeyList != null) && (currentFKeyList.Count > 0)) ? currentFKeyList[0].ToString() : "---",
-                                ((fkb.EndKeyList != null) && (fkb.EndKeyList.Count > 0)) ? fkb.EndKeyList[0].ToString() : "---",
+                                ((nextFKeyList != null) && (nextFKeyList.Count > 0)) ? nextFKeyList[0].ToString() : "---",
                                 curPartition,
                                 FetchLoopCount
                                 ));

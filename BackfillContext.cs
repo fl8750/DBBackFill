@@ -20,6 +20,7 @@ namespace DBBackfill
         //
         public BackfillCtl BkfCtrl { get; private set; }
 
+
         //  Execution control
         //
         public BackfillType FillType = BackfillType.Merge; // Backfill strategy

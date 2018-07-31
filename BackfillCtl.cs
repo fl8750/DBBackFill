@@ -40,6 +40,11 @@ namespace DBBackfill
         public string SessionName { get; set; }
         public int CommandTimeout { get; set; } // Default SQL timeout in seconds
 
+        public string Version
+        {
+            get { return System.Reflection.Assembly.GetAssembly(typeof(BackfillContext)).GetName().Version.ToString(); }
+        }
+
         //  Debug information
         //
         public Exception CapturedException = null;
