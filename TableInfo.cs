@@ -244,7 +244,10 @@ namespace DBBackfill
                         IsIdentity = (bool) cdr["is_identity"],
                         IsNullable = (bool) cdr["is_nullable"],
                         IsXmlDocument = (bool) cdr["is_xml_document"],
-                        KeyDescending = ((int)cdr["is_descending_key"] != 0)
+                        KeyDescending = ((int)cdr["is_descending_key"] != 0),
+
+                        Ignore = false, 
+                        LoadExpression = ""  // No custom value expression
                     };
 
                 curTbl.AddColumn(newCol); // Add to the column list 

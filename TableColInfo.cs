@@ -25,12 +25,18 @@ namespace DBBackfill
 
         private bool _isIncluded = true;
 
+        //private string _loadExpression = ""; // If not empty, then use this expression in the Fetch Select SQL statement for this column
+
         public string Name { get; set; }
 
         public string NameQuoted
         {
             get { return string.Format("[{0}]", Name); }
         }
+
+        public string LoadExpression { get; set; }
+
+        public bool Ignore { get; set; }
 
         public string Datatype { get; set; }
         public string DatatypeFull
