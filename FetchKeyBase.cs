@@ -13,10 +13,10 @@ namespace DBBackfill
         //
         public string Name { get; protected set; } //  Name of this FetchKey
 
-        public bool IsValid
-        {
-            get { return ((StartKeyList.Count > 0) && (EndKeyList.Count > 0)); } // True if actual keys fetched
-        }
+        //public bool IsValid
+        //{
+        //    get { return ((StartKeyList.Count > 0) && (EndKeyList.Count > 0)); } // True if actual keys fetched
+        //}
 
         //  Source Table info
         //
@@ -32,34 +32,60 @@ namespace DBBackfill
         //
         public List<object> StartKeyList { get; private set; }
         public List<object> EndKeyList { get; private set; }
-        private List<object> _restartKeyList { get; set; }
+        public List<object> RestartKeyList { get; private set; }
 
-        //public List<object> StartKeys_orig { get; private set; }
-        //public List<object> EndKeys_orig { get; private set; }
 
-        public BackfillType FillType = BackfillType.BulkInsert;
+        private BackfillType _fillType;
+        public BackfillType FillType
+        {
+            get => _fillType;
+            set => _fillType = value;
+        }
+        public string FillTypeName
+        {
+            get => _fillType.ToString();  // Get the BackfillType name
+            set => _fillType = (BackfillType) Enum.Parse(typeof(BackfillType),value);
+        }
 
         //  Restart positioning information 
         //
-        public bool FlgRestart = false; // Set true when initial restart check performed
-        public int RestartPartition; // Restart partition number
-
-        public List<object> RestartKeys // Keys used for restart
+        public bool FlgRestart // Set true when initial restart check performed
         {
-            get
-            {
-                return _restartKeyList;
-            }
+            get;
+            protected set;
+        }
+
+        private int _restartPartition = 0;
+
+        public int RestartPartition // Restart partition number
+        {
+            get => _restartPartition;
             set
             {
-                FlgRestart = true;
-                _restartKeyList = value;
+                _restartPartition = value;
+                FlgRestart = (_restartPartition >= 1); // Set the restart flag accordingly
             }
         }
 
+        //public List<object> RestartKeys;
+
+        // Keys used for restart
+        //{
+        //    get
+        //    {
+        //        return _restartKeyList;
+        //    }
+        //    set
+        //    {
+        //        //if ((value != null) && (value.Count > 0)) FlgRestart = true;
+        //        _restartKeyList = value;
+        //    }
+        //}
+
         public void AddRestartKey(object newKey)
         {
-            _restartKeyList.Add(newKey);
+            RestartKeyList.Add(newKey);
+            FlgRestart = true; // Mark as a restart
         }
 
         public void AddEndKey(object newKey)
@@ -72,10 +98,11 @@ namespace DBBackfill
         public string FetchBatchSql = ""; // Get the next batch of rows
         public string FetchLastSql = ""; // Get the last row of the batch
 
+
         //  Methods
         //
         public virtual void BuildFetchQuery(SqlCommand srcCmd, TableInfo srcTable, int batchSize,
-            int partNumber, bool isFirstFetch, List<string> copyColNames, List<string> keyColNames, List<object> curKeys)
+                                            int partNumber, bool isFirstFetch, List<string> copyColNames, List<string> keyColNames, List<object> curKeys)
         {
             throw new ApplicationException("Not Implemented!");
         }
@@ -96,8 +123,11 @@ namespace DBBackfill
             StartKeyList = new List<object>(); // Initialize the start/end key lists
             EndKeyList = new List<object>();
 
-            RestartPartition = 1;
-            RestartKeys = new List<object>(); // Clear out the restart keys list
+            FillType = BackfillType.BulkInsert;  // Default to bulk insert
+
+            RestartPartition = 1;  // Default to the irst partition
+            FlgRestart = false; // Assume no restart at this point
+            RestartKeyList = new List<object>(); // Clear out the restart keys list
         }
 
     }

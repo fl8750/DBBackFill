@@ -41,6 +41,7 @@ namespace DBBackfill
             //
             bool isSameInstance = false;
             bool hasRestarted = false; // 
+            int fetchCountSinceStart = 0; // Count the number of row fetchs since start
 
             int curFetchCount = 0; // Number of rows fetched from the source table
             int curMergeCount = 0; // Number of rows merged into the destination table
@@ -123,6 +124,7 @@ namespace DBBackfill
                 int ptIdx = 0;
                 if ( fkb.FlgRestart && (fkb.RestartPartition != 1))
                 {
+                    BkfCtrl.DebugOutput(string.Format("      Restart partition: {0}", fkb.RestartPartition));
                     for (ptIdx = 0; ptIdx < PartsNotEmpty.Count; ptIdx++)
                         if (PartsNotEmpty[ptIdx] >= fkb.RestartPartition)
                             break; // If the selected partition does exists then start at the next highest or the last
@@ -139,11 +141,14 @@ namespace DBBackfill
                     //  Setup the initial key value list
                     //
                     List<object> currentFKeyList = new List<object>();
-                    if (hasRestarted && fkb.FlgRestart)
+                    if (hasRestarted)
                     {
-                        for (int idx = 0; (idx < fkb.RestartKeys.Count) && (idx < srcKeyNames.Count); idx++)
+                        if ((fetchCountSinceStart == 0) && fkb.FlgRestart)
                         {
-                            currentFKeyList.Add(fkb.RestartKeys[idx]); // Process any restart keys values
+                            for (int idx = 0; (idx < fkb.RestartKeyList.Count) && (idx < srcKeyNames.Count); idx++)
+                            {
+                                currentFKeyList.Add(fkb.RestartKeyList[idx]); // Process any restart keys values
+                            }
                         }
                         hasRestarted = false;
                     }
@@ -232,6 +237,7 @@ namespace DBBackfill
                                 FetchRowCount += curFetchCount;
 
                                 ++FetchLoopCount; // Increment the loop count
+                                ++fetchCountSinceStart; // Increment total fetch count
                             }
 
                             //  Create a transaction object  - Protect the bulk import, merge and truncate statement in a transaction
@@ -331,10 +337,10 @@ namespace DBBackfill
                 Exception ex2 = ex;
                 BkfCtrl.CapturedException = ex; // Save the exception information 
 
-                while (ex2 != null)
+                for (int exNest = 0; ex2 != null; ++exNest)
                 {
-                    Console.WriteLine(ex.Message);
-                    Console.WriteLine(ex.StackTrace);
+                    BkfCtrl.DebugOutput(string.Format("Exception: [{0}] {1}", exNest, ex2.Message));
+                    BkfCtrl.DebugOutput(string.Format("Exception: [{0}] {1}", exNest, ex2.StackTrace));
                     ex2 = ex2.InnerException;
                 }
                 throw new ApplicationException("Worker Error: ", ex);
@@ -381,7 +387,8 @@ namespace DBBackfill
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine(ex.Message);
+                    BkfCtrl.DebugOutput(string.Format("Exception: {0}", ex.Message));
+                    BkfCtrl.DebugOutput(string.Format("Exception: {0}", ex.StackTrace));
                     return 0;
                 }
             }
