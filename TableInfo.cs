@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Data;
 using System.Data.SqlClient;
+using System.Data.SqlTypes;
 using System.Linq;
 
 
@@ -13,6 +14,13 @@ namespace DBBackfill
     /// </summary>
     public class TableInfo : IEnumerable<TableColInfo>
     {
+
+        public class TablePtInfo
+        {
+            public int PartitionNumber = 0;
+            public Int64 Rows = 0;
+        }
+
         //
         //  Table Properties
         //
@@ -33,12 +41,19 @@ namespace DBBackfill
 
         public bool HasIdentity { get; internal set; }
 
+        //  Table partitioning information
         //
         public bool IsPartitioned { get; set; }
         public string PtScheme { get; set; }
         public string PtFunc { get; set; }
+        public int PtCount { get; protected set; }
         public TableColInfo PtCol { get; set; }
 
+        public List<TablePtInfo> PtNotEmpty = new List<TablePtInfo>(); // Information on individual partitions in the table
+
+
+        //  Column information
+        //
         private TableColInfoList _columns = new TableColInfoList();
 
         //
@@ -80,17 +95,39 @@ namespace DBBackfill
         //
         //  Constructors
         //
-        public TableInfo(string instanceName, string dbName, string schemaName, string tableName, int objectId, Int64 rowCount,  bool hasIdentity = false)
+        public TableInfo( SqlConnection dbConn, string instanceName, string dbName, string schemaName, string tableName, int objectId)
         {
             InstanceName = instanceName;
             DbName = dbName;
             SchemaName = schemaName;
             TableName = tableName;
             ObjectId = objectId;
-            RowCount = rowCount;
-            HasIdentity = hasIdentity;
-            IsPartitioned = false;
+            HasIdentity = false; // Assume no identity column
+            IsPartitioned = false;  // Assume no partitioning
             Locked = true;
+
+            ////  Get the partition sizing info if "partition selection" is required
+            ////
+            //using (SqlCommand cmdPtSz = new SqlCommand(string.Format(_sqlPartitionSizes, SchemaName, TableName), dbConn)) // Source database command
+            //{
+            //    cmdPtSz.CommandType = CommandType.Text;
+            //    cmdPtSz.CommandTimeout = 600;
+            //    using (SqlDataReader srcPtRdr = cmdPtSz.ExecuteReader()) // Fetch data into a data reader
+            //    {
+            //        using (DataTable srcDt = new DataTable())
+            //        {
+            //            srcDt.Load(srcPtRdr); // Load the data into a DataTable
+            //            PtInfo = srcDt.AsEnumerable().OrderBy(pt => (int)pt["partition_number"]).Select(p =>
+            //                                                           new TablePtInfo() {
+            //                                                               PartitionNumber = (int)p["partition_number"],
+            //                                                               TotalRows = (Int64)p["TotalRows"],
+            //                                                               Rows = (Int64)p["rows"]
+            //                                                           }).ToList();
+            //            RowCount = (Int64)srcDt.Rows[0]["TotalRows"];  // Get the total row count from the first datarow
+            //        }
+            //    }
+            //}
+            //PartsNotEmpty = PartSizesAll.Keys.Where(pi => (PartSizesAll[pi] > 0)).OrderBy(pi => pi).ToList(); // Record the partition numbers that are not empty 
         }
 
         public TableInfo()
@@ -103,11 +140,101 @@ namespace DBBackfill
     /// </summary>
     public class TableInfoList : IEnumerable<TableInfo>
     {
-        //  Private information
         //
-        //static private readonly Dictionary<string, bool> IgnoreDataTypes = new Dictionary<string, bool>(StringComparer.InvariantCultureIgnoreCase) { { "TIMESTAMP", false } };
-        //static private readonly Dictionary<string, bool> NoCompareTypes = new Dictionary<string, bool>(StringComparer.InvariantCultureIgnoreCase) { { "TEXT", false } };        
-        
+        //  Constants and strings
+        //
+        private string _sqlPartitionSizes = @"
+              SELECT	TAB.[object_id],
+                        SCH.[name] AS SchemaName,
+						TAB.[name] AS TableName,
+						COALESCE(PS.[name],'') AS PtSchemeName,
+						COALESCE(PF.[name], '') AS PtFunctionName,
+                        SUM(PT.[rows]) OVER ( PARTITION BY PT.[object_id] ) AS TotalRows ,
+                        COUNT(PT.partition_number) OVER ( PARTITION BY PT.[object_id], CASE WHEN PT.[rows] > 0 THEN 0 ELSE 1 END ) AS NotEmpty ,
+                        PT.partition_number ,
+                        PT.[rows]
+                FROM    sys.tables TAB
+                        INNER JOIN sys.schemas SCH ON ( TAB.[schema_id] = SCH.[schema_id] )
+                        INNER JOIN sys.indexes IDX ON ( TAB.[object_id] = IDX.[object_id] )
+                        INNER JOIN sys.partitions PT ON ( TAB.[object_id] = PT.[object_id] )
+                                                        AND ( IDX.index_id = PT.index_id )
+					    LEFT JOIN ( sys.partition_schemes PS
+                                    INNER JOIN sys.Partition_functions PF ON ( PS.function_id = PF.function_id )
+                                  ) ON ( IDX.data_space_id = PS.data_space_id )
+                WHERE   ( IDX.index_id IN ( 0, 1 ) )
+                        AND (( PT.[rows] > 0 ) OR (PS.[name] IS NULL))
+                ORDER BY SchemaName ,
+                        TableName ,
+                        PT.partition_number";
+
+
+        //  Get information on all the table columns
+        //
+        string strTableColInfo = @"
+    USE [{0}]; 
+    WITH    IDXC
+          AS ( 		  
+			SELECT   *,
+						ROW_NUMBER() OVER (PARTITION BY IDXC2.[object_id], IDXC2.column_id ORDER BY IDXC2.IndexPriority) AS ColPrio
+               FROM     ( SELECT    DISTINCT
+									TBL.[object_id] ,
+                                    IDX.index_id ,
+									IDX.[type],
+                                    IDX.is_unique ,
+                                    COL.column_id ,
+                                    COALESCE(IDC.key_ordinal, 0) AS key_ordinal ,
+                                    COALESCE(IDC.is_descending_key , 0) AS is_descending_key,
+                                    COALESCE(IDC.partition_ordinal, 0) AS partition_ordinal
+                                    ,DENSE_RANK() OVER ( PARTITION BY TBL.[object_id] ORDER BY IDX.is_unique DESC, IDX.index_id ) AS IndexPriority
+	                         FROM (sys.tables TBL 
+		                        INNER JOIN sys.columns COL ON (TBL.[object_id] = COL.[object_id]))
+		                        LEFT OUTER JOIN 
+	                                (sys.indexes IDX
+		                                INNER JOIN sys.index_columns IDC 
+                                            ON ( IDX.[object_id] = IDC.[object_id] ) AND ( IDX.[index_id] = IDC.[index_id] )
+                                    )
+						        ON (TBL.[object_id] = IDX.[object_id] ) AND (COL.column_id = IDC.column_id)
+                        ) IDXC2				
+             )
+
+         SELECT   TAB.[object_id] ,
+                        TAB.[schema_id] ,
+                        SCH.name AS SchemaName ,
+                        TAB.name AS TableName ,
+                        IDX.[type] AS index_type ,
+                        IC.[name] AS ColName ,
+                        IC.column_id ,
+                        TYP.[name] AS DataType ,
+                        IC.max_length ,
+                        IC.[precision] ,
+                        IC.[scale] ,
+                        IC.is_xml_document ,
+                        IC.is_nullable ,
+                        IC.is_identity ,
+                        IC.is_computed ,
+                        COALESCE(IDXC.key_ordinal, 0) AS key_ordinal ,
+                        COALESCE(IDXC.is_descending_key, 0) AS is_descending_key ,
+                        COALESCE(IDXC.partition_ordinal, 0) AS partition_ordinal 
+               FROM     sys.tables TAB
+                        INNER JOIN sys.schemas SCH ON ( TAB.[schema_id] = SCH.[schema_id] )
+                        INNER JOIN sys.indexes IDX ON ( TAB.[object_id] = IDX.[object_id] )
+                        INNER JOIN sys.columns IC ON ( TAB.[object_id] = IC.[object_id] )
+                        INNER JOIN sys.types TYP ON ( IC.user_type_id = TYP.user_type_id )
+                        LEFT OUTER JOIN /* sys.index_columns */ IDXC ON ( TAB.[object_id] = IDXC.[object_id] )
+                                                                       -- AND ( IDX.index_id = IDXC.index_id )
+                                                                        AND ( IC.column_id = IDXC.column_id )
+               WHERE    ( TAB.is_ms_shipped = 0 )
+                        AND ( IDX.[type] IN ( 0, 1, 5 ) )
+						AND (IDXC.ColPrio = 1)
+
+               ORDER BY SchemaName ,
+                        TableName ,
+                        column_id;";
+
+
+
+        //  Private information
+        // 
         private Dictionary<int, TableInfo> _tables = new Dictionary<int, TableInfo>();
 
         //  Properties
@@ -137,133 +264,184 @@ namespace DBBackfill
         //
         private void BuildTableInfoList(SqlConnection dbConn, string dbName)
         {
-            //  Now build a collection of tables and columns
-            //            
-            string strArticleColInfo = @"
-    USE [{0}]; 
-    WITH    IDXC
-          AS ( 		  
-			SELECT   *,
-						ROW_NUMBER() OVER (PARTITION BY IDXC2.[object_id], IDXC2.column_id ORDER BY IDXC2.IndexPriority) AS ColPrio
-               FROM     ( SELECT    DISTINCT
-									TBL.[object_id] ,
-                                    IDX.index_id ,
-									IDX.[type],
-                                    IDX.is_unique ,
-                                    COL.column_id ,
-                                    COALESCE(IDC.key_ordinal, 0) AS key_ordinal ,
-                                    COALESCE(IDC.is_descending_key , 0) AS is_descending_key,
-                                    COALESCE(IDC.partition_ordinal, 0) AS partition_ordinal
-                                    ,DENSE_RANK() OVER ( PARTITION BY TBL.[object_id] ORDER BY IDX.is_unique DESC, IDX.index_id ) AS IndexPriority
-	 FROM (sys.tables TBL 
-		INNER JOIN sys.columns COL ON (TBL.[object_id] = COL.[object_id]))
-		LEFT OUTER JOIN 
-	(sys.indexes IDX
-		INNER JOIN sys.index_columns IDC ON ( IDX.[object_id] = IDC.[object_id] )
-                                                                        AND ( IDX.[index_id] = IDC.[index_id] ))
-						ON (TBL.[object_id] = IDX.[object_id] ) AND (COL.column_id = IDC.column_id)
-                        ) IDXC2				
-             )
 
-         SELECT   TAB.[object_id] ,
-                        TAB.[schema_id] ,
-                        SCH.name AS SchemaName ,
-                        TAB.name AS TableName ,
-                        IDX.[type] AS index_type ,
-                        IC.[name] AS ColName ,
-                        IC.column_id ,
-                        TYP.[name] AS DataType ,
-                        IC.max_length ,
-                        IC.[precision] ,
-                        IC.[scale] ,
-                        IC.is_xml_document ,
-                        IC.is_nullable ,
-                        IC.is_identity ,
-                        IC.is_computed ,
-                        COALESCE(IDXC.key_ordinal, 0) AS key_ordinal ,
-                        COALESCE(IDXC.is_descending_key, 0) AS is_descending_key ,
-                        CAST(IDXC.partition_ordinal AS INT) AS is_partitioned ,
-                        COALESCE(IDXC.partition_ordinal, 0) AS partition_ordinal ,
-                        COALESCE(PS.[name], '') AS PtScheme ,
-                        COALESCE(PF.[name], '') AS PtFunc
-               FROM     sys.tables TAB
-                        INNER JOIN sys.schemas SCH ON ( TAB.[schema_id] = SCH.[schema_id] )
-                        INNER JOIN sys.indexes IDX ON ( TAB.[object_id] = IDX.[object_id] )
-                        INNER JOIN sys.columns IC ON ( TAB.[object_id] = IC.[object_id] )
-                        INNER JOIN sys.types TYP ON ( IC.user_type_id = TYP.user_type_id )
-                        LEFT OUTER JOIN /* sys.index_columns */ IDXC ON ( TAB.[object_id] = IDXC.[object_id] )
-                                                                       -- AND ( IDX.index_id = IDXC.index_id )
-                                                                        AND ( IC.column_id = IDXC.column_id )
-                        LEFT JOIN ( sys.partition_schemes PS
-                                    INNER JOIN sys.Partition_functions PF ON ( PS.function_id = PF.function_id )
-                                  ) ON ( IDX.data_space_id = PS.data_space_id )
-               WHERE    ( TAB.is_ms_shipped = 0 )
-                        AND ( IDX.[type] IN ( 0, 1, 5 ) )
-						AND (IDXC.ColPrio = 1)
-
-               ORDER BY SchemaName ,
-                        TableName ,
-                        column_id;";
-
-            DataTable dtTblColInfo = new DataTable();
-            using (SqlCommand cmdArtcol = new SqlCommand(string.Format(strArticleColInfo, dbName), dbConn))
+            //  Fetch the list of tables/columns in this database
+            //
+            using (DataTable dtTblColInfo = new DataTable())
             {
-                SqlDataReader srcRdr = cmdArtcol.ExecuteReader();
-                dtTblColInfo.Load(srcRdr);
-                srcRdr.Close();
-            }
-
-            foreach (DataRow cdr in dtTblColInfo.Rows)
-            {
-                string schemaName = (string) cdr["SchemaName"];
-                string tableName = (string) cdr["TableName"];
-                TableInfo curTbl = this[schemaName, tableName];
-                if (curTbl == null)
+                using (SqlCommand cmdArtcol = new SqlCommand(string.Format(strTableColInfo, dbName), dbConn))
                 {
-                    curTbl = new TableInfo(dbConn.DataSource, dbName, schemaName, tableName, (int) cdr["object_id"], 0 /*(Int64) cdr["RowCount"]*/);
-                    _tables.Add(curTbl.ObjectId, curTbl);
+                    SqlDataReader srcRdr = cmdArtcol.ExecuteReader();
+                    dtTblColInfo.Load(srcRdr);
+                    srcRdr.Close();
                 }
 
-                //  Create the next table column information object
+                //  Use LINQ grouping to split the dataset into tables and columns
                 //
-                TableColInfo newCol =
-                    new TableColInfo(){
-                        Name = (string) cdr["ColName"],
-                        Datatype = (string) cdr["Datatype"],
+                var groupColsByTable = dtTblColInfo.AsEnumerable()
+                                                   .GroupBy(tbl => (int)tbl["object_id"]);
 
-                        IsPsCol = ((int)cdr["partition_ordinal"]) > 0,
-
-                        ID = (int) cdr["column_id"],
-                        KeyOrdinal = (int) cdr["key_ordinal"],
-                        MaxLength = (int) (Int16) (cdr["max_length"] ?? 0),
-                        PartitionOrdinal = (int) (cdr["partition_ordinal"] ?? 0),
-                        Precision = (int) (byte) (cdr["precision"] ?? 0),
-                        Scale = (int) (byte) (cdr["scale"] ?? 0),
-
-                        IsComputed = (bool) cdr["is_computed"],
-                        IsIdentity = (bool) cdr["is_identity"],
-                        IsNullable = (bool) cdr["is_nullable"],
-                        IsXmlDocument = (bool) cdr["is_xml_document"],
-                        KeyDescending = ((int)cdr["is_descending_key"] != 0),
-
-                        Ignore = false, 
-                        LoadExpression = ""  // No custom value expression
-                    };
-
-                curTbl.AddColumn(newCol); // Add to the column list 
-
-                if ((bool) cdr["is_identity"])
-                    curTbl.HasIdentity = true; // Mark table as having an identity column
-
-                if ((int) cdr["is_partitioned"] != 0)
+                //  The outer "foreach" loop will iterate once per table.  The row group will contain all the columns for this table
+                //
+                foreach (var grpTable in groupColsByTable)
                 {
-                    curTbl.IsPartitioned = true; // Mark table as "partitioned"
-                    curTbl.PtScheme = (string) cdr["PtScheme"]; // Controlling scheme ...
-                    curTbl.PtFunc = (string) cdr["PtFunc"]; // ... and function
-                    if (newCol.IsPsCol)
-                        curTbl.PtCol = newCol; // Save a reference to the partitioning column of this table
+                    int objectID = grpTable.Key;
+
+                    //  The inner loop will loop once per column in this table
+                    //
+                    foreach (var dr in grpTable.OrderBy(col => col["column_id"]))
+                    {
+                        TableInfo curTbl = this[objectID]; 
+                    
+                        // Ensure that TableInfo object exists in our collection
+                        if (curTbl == null) 
+                        {
+                            string schemaName = (string) dr["SchemaName"];
+                            string tableName = (string) dr["TableName"];
+                            curTbl = new TableInfo(dbConn, dbConn.DataSource, dbName, schemaName, tableName, objectID);
+                            _tables.Add(curTbl.ObjectId, curTbl);
+                        }
+
+                        //  Now process each table column
+                        TableColInfo newCol =
+                            new TableColInfo()
+                            {
+                                Name = (string)dr["ColName"],
+                                Datatype = (string)dr["Datatype"],
+
+                                ID = (int)dr["column_id"],
+                                KeyOrdinal = (int)dr["key_ordinal"],
+                                MaxLength = (int)(Int16)(dr["max_length"] ?? 0),
+                                PartitionOrdinal = (int)(dr["partition_ordinal"] ?? 0),
+                                Precision = (int)(byte)(dr["precision"] ?? 0),
+                                Scale = (int)(byte)(dr["scale"] ?? 0),
+
+                                IsComputed = (bool)dr["is_computed"],
+                                IsIdentity = (bool)dr["is_identity"],
+                                IsNullable = (bool)dr["is_nullable"],
+                                IsXmlDocument = (bool)dr["is_xml_document"],
+                                KeyDescending = ((int)dr["is_descending_key"] != 0),
+
+                                Ignore = false,
+                                LoadExpression = ""  // No custom value expression
+                            };
+
+                        curTbl.AddColumn(newCol); // Add to the column list 
+
+                        //  Take care of the final table properties
+                        if (newCol.IsIdentity)
+                            curTbl.HasIdentity = true; // Mark table as having an identity column
+
+                        if (newCol.IsPsCol)
+                        {
+                            curTbl.IsPartitioned = true; // Mark table as "partitioned"
+                            curTbl.PtCol = newCol; // Save a reference to the partitioning column of this table
+                        }
+                    }
+                }               
+            }       
+            
+            //  Fetch partitioning info for these tables
+            //            
+            using (DataTable srcDt = new DataTable())
+            {
+                using (SqlCommand cmdPtSz = new SqlCommand(_sqlPartitionSizes, dbConn)) // Source database command
+                {
+                    cmdPtSz.CommandType = CommandType.Text;
+                    cmdPtSz.CommandTimeout = 600;
+                    using (SqlDataReader srcPtRdr = cmdPtSz.ExecuteReader()) // Fetch data into a data reader
+                    {
+                        srcDt.Load(srcPtRdr); // Load the data into a DataTable
+                        srcPtRdr.Close();
+                    }
+                }
+
+                var PtInfoByTable = srcDt.AsEnumerable().GroupBy(pt => pt["object_id"]);
+
+                foreach (var PtInfo in PtInfoByTable)
+                {
+                    int objectID = (int)PtInfo.Key;  // Get the objectID for this table
+                    TableInfo curTable = this[objectID];
+                    if (curTable == null)
+                        throw new ApplicationException(string.Format("Unknown table: ID-[{0}]", objectID));
+
+                    foreach (DataRow ptdr in PtInfo)
+                    {
+                        if (curTable.PtNotEmpty.Count == 0)
+                        {
+                            string ptScheme = (string)ptdr["PtSchemeName"];
+                            if (string.IsNullOrEmpty(ptScheme))
+                                curTable.IsPartitioned = false;
+                            else
+                            {
+                                curTable.IsPartitioned = true;
+                                curTable.PtScheme = ptScheme;
+                                curTable.PtFunc = (string)ptdr["PtFunctionName"];
+                                curTable.RowCount = (Int64) ptdr["TotalRows"];
+                            }
+                        }
+                        curTable.PtNotEmpty.Add(new TableInfo.TablePtInfo()
+                        {
+                            PartitionNumber = (int)ptdr["partition_number"],
+                            Rows = (Int64)ptdr["rows"]
+                        });
+                    }
                 }
             }
+
+
+
+            //foreach (DataRow cdr in dtTblColInfo.Rows)
+            //{
+            //    string schemaName = (string) cdr["SchemaName"];
+            //    string tableName = (string) cdr["TableName"];
+            //    TableInfo curTbl = this[schemaName, tableName];
+            //    if (curTbl == null)
+            //    {
+            //        curTbl = new TableInfo(dbConn, dbConn.DataSource, dbName, schemaName, tableName, (int) cdr["object_id"]);
+            //        _tables.Add(curTbl.ObjectId, curTbl);
+            //    }
+
+            //    //  Create the next table column information object
+            //    //
+            //    TableColInfo newCol =
+            //        new TableColInfo(){
+            //            Name = (string) cdr["ColName"],
+            //            Datatype = (string) cdr["Datatype"],
+
+            //            IsPsCol = ((int)cdr["partition_ordinal"]) > 0,
+
+            //            ID = (int) cdr["column_id"],
+            //            KeyOrdinal = (int) cdr["key_ordinal"],
+            //            MaxLength = (int) (Int16) (cdr["max_length"] ?? 0),
+            //            PartitionOrdinal = (int) (cdr["partition_ordinal"] ?? 0),
+            //            Precision = (int) (byte) (cdr["precision"] ?? 0),
+            //            Scale = (int) (byte) (cdr["scale"] ?? 0),
+
+            //            IsComputed = (bool) cdr["is_computed"],
+            //            IsIdentity = (bool) cdr["is_identity"],
+            //            IsNullable = (bool) cdr["is_nullable"],
+            //            IsXmlDocument = (bool) cdr["is_xml_document"],
+            //            KeyDescending = ((int)cdr["is_descending_key"] != 0),
+
+            //            Ignore = false, 
+            //            LoadExpression = ""  // No custom value expression
+            //        };
+
+            //    curTbl.AddColumn(newCol); // Add to the column list 
+
+            //    if ((bool) cdr["is_identity"])
+            //        curTbl.HasIdentity = true; // Mark table as having an identity column
+
+            //    if ((int) cdr["is_partitioned"] != 0)
+            //    {
+            //        curTbl.IsPartitioned = true; // Mark table as "partitioned"
+            //        curTbl.PtScheme = (string) cdr["PtScheme"]; // Controlling scheme ...
+            //        curTbl.PtFunc = (string) cdr["PtFunc"]; // ... and function
+            //        if (newCol.IsPsCol)
+            //            curTbl.PtCol = newCol; // Save a reference to the partitioning column of this table
+            //    }
+            //}
 
         }
 

@@ -123,19 +123,21 @@ namespace DBBackfill
 
             try
             {
-                DataTable dtDbList = new DataTable();
-                using (SqlCommand cmdArtcol = new SqlCommand(strDatabaseList, dbConn))
+                using (DataTable dtDbList = new DataTable())
                 {
-                    SqlDataReader srcRdr = cmdArtcol.ExecuteReader();
-                    dtDbList.Load(srcRdr);
-                    srcRdr.Close();
-                }
+                    using (SqlCommand cmdArtcol = new SqlCommand(strDatabaseList, dbConn))
+                    {
+                        SqlDataReader srcRdr = cmdArtcol.ExecuteReader();
+                        dtDbList.Load(srcRdr);
+                        srcRdr.Close();
+                    }
 
-                foreach (DataRow dbr in dtDbList.Rows)
-                {
-                    string dbName = (string)dbr["name"];
-                    DatabaseInfo dbInfo = new DatabaseInfo(dbConn, dbName);
-                    _databases.Add(dbName, dbInfo);
+                    foreach (DataRow dbr in dtDbList.Rows)
+                    {
+                        string dbName = (string)dbr["name"];
+                        DatabaseInfo dbInfo = new DatabaseInfo(dbConn, dbName);
+                        _databases.Add(dbName, dbInfo);
+                    }
                 }
             }
             catch (Exception)

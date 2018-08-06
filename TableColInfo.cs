@@ -83,15 +83,13 @@ namespace DBBackfill
         public int Precision = 0;
         public int Scale = 0;
 
-        //public string PsScheme { get; set; }
-        //public string PsFunc { get; set; }
-        public bool IsPsCol { get; set; }
         public int PartitionOrdinal = 0;
 
         public bool IsNullable = false;
         public bool IsIdentity = false;
         public bool IsComputed = false;
         public bool IsXmlDocument = false;
+        public bool IsPsCol => PartitionOrdinal > 0;
 
         public bool IsComparable
         { get { return (!DatatypeInfo.ContainsKey(Datatype)) || DatatypeInfo[Datatype].IsComparible; } }

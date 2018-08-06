@@ -9,24 +9,24 @@ namespace DBBackfill
 
     public partial class BackfillContext
     {
-        private string _sqlPartitionSizes = @"
-                SELECT  SCH.name AS SchemaName ,
-                        TAB.name AS TableName ,
-                        SUM(PT.[rows]) OVER ( PARTITION BY PT.[object_id] ) AS TotalRows ,
-                        PT.partition_number ,
-                        PT.[rows]
-                FROM    sys.tables TAB
-                        INNER JOIN sys.schemas SCH ON ( TAB.[schema_id] = SCH.[schema_id] )
-                        INNER JOIN sys.indexes IDX ON ( TAB.[object_id] = IDX.[object_id] )
-                        INNER JOIN sys.partitions PT ON ( TAB.[object_id] = PT.[object_id] )
-                                                        AND ( IDX.index_id = PT.index_id )
-                WHERE   ( SCH.name = '{0}' )
-                        AND ( TAB.name = '{1}' )
-                        AND ( IDX.index_id IN ( 0, 1 ) )
-                        AND ( PT.[rows] > 0 )
-                ORDER BY SchemaName ,
-                        TableName ,
-                        partition_number";
+        //private string _sqlPartitionSizes = @"
+        //        SELECT  SCH.name AS SchemaName ,
+        //                TAB.name AS TableName ,
+        //                SUM(PT.[rows]) OVER ( PARTITION BY PT.[object_id] ) AS TotalRows ,
+        //                PT.partition_number ,
+        //                PT.[rows]
+        //        FROM    sys.tables TAB
+        //                INNER JOIN sys.schemas SCH ON ( TAB.[schema_id] = SCH.[schema_id] )
+        //                INNER JOIN sys.indexes IDX ON ( TAB.[object_id] = IDX.[object_id] )
+        //                INNER JOIN sys.partitions PT ON ( TAB.[object_id] = PT.[object_id] )
+        //                                                AND ( IDX.index_id = PT.index_id )
+        //        WHERE   ( SCH.name = '{0}' )
+        //                AND ( TAB.name = '{1}' )
+        //                AND ( IDX.index_id IN ( 0, 1 ) )
+        //                AND ( PT.[rows] > 0 )
+        //        ORDER BY SchemaName ,
+        //                TableName ,
+        //                partition_number";
 
 
         //  Worker properties
@@ -46,7 +46,7 @@ namespace DBBackfill
             int curFetchCount = 0; // Number of rows fetched from the source table
             int curMergeCount = 0; // Number of rows merged into the destination table
 
-            Dictionary<int, Int64> PartSizesAll = new Dictionary<int, Int64>();    // Per partition row counts for all partitions.
+            //Dictionary<int, Int64> PartSizesAll = new Dictionary<int, Int64>();    // Per partition row counts for all partitions.
             List<int> PartsNotEmpty = new List<int>();    // Partition # of non-empty partitions.
 
 
@@ -86,31 +86,34 @@ namespace DBBackfill
 
                 //  Get the partition sizing info if "partition selection" is required
                 //
-                using (SqlCommand cmdPtSz = new SqlCommand(string.Format(_sqlPartitionSizes, SrcTable.SchemaName, SrcTable.TableName), srcConn)) // Source database command
-                {
-                    cmdPtSz.CommandType = CommandType.Text;
-                    cmdPtSz.CommandTimeout = 600;
-                    using (SqlDataReader srcPtRdr = cmdPtSz.ExecuteReader()) // Fetch data into a data reader
-                    {
-                        using (DataTable srcDt = new DataTable())
-                        {
-                            srcDt.Load(srcPtRdr); // Load the data into a DataTable
-                            PartSizesAll = srcDt.AsEnumerable().Select(p =>
-                                new{
-                                    PartNo = (int) p["partition_number"],
-                                    Rows = (Int64) p["Rows"]
-                                }).ToDictionary(pt => pt.PartNo, pt => pt.Rows);
-                            SrcTable.RowCount = (Int64) srcDt.Rows[0]["TotalRows"];
-                        }
-                    }
-                }
-                PartsNotEmpty = PartSizesAll.Keys.Where(pi => (PartSizesAll[pi] > 0)).OrderBy(pi => pi).ToList(); // Record the partition numbers that are not empty 
+                //using (SqlCommand cmdPtSz = new SqlCommand(string.Format(_sqlPartitionSizes, SrcTable.SchemaName, SrcTable.TableName), srcConn)) // Source database command
+                //{
+                //    cmdPtSz.CommandType = CommandType.Text;
+                //    cmdPtSz.CommandTimeout = 600;
+                //    using (SqlDataReader srcPtRdr = cmdPtSz.ExecuteReader()) // Fetch data into a data reader
+                //    {
+                //        using (DataTable srcDt = new DataTable())
+                //        {
+                //            srcDt.Load(srcPtRdr); // Load the data into a DataTable
+                //            PartSizesAll = srcDt.AsEnumerable().Select(p =>
+                //                new{
+                //                    PartNo = (int) p["partition_number"],
+                //                    Rows = (Int64) p["Rows"]
+                //                }).ToDictionary(pt => pt.PartNo, pt => pt.Rows);
+                //            SrcTable.RowCount = (Int64) srcDt.Rows[0]["TotalRows"];
+                //        }
+                //    }
+                //}
+                //PartsNotEmpty = SrcTable.PtInfo.Where(pi => (pi.Rows > 0))
+                //                        .OrderBy(pi => pi.PartitionNumber)
+                //                        .Select(pi => pi.PartitionNumber)
+                //                        .ToList(); // Record the partition numbers that are not empty 
 
                 //  Show the rowcount
                 BkfCtrl.DebugOutput(string.Format("      Rows: {0:#,##0}  BatchChunkSize: {1:#,##0}  Partitions(#/>0): {2:#,##0}/{3:#,##0}",
-                        DstTable.RowCount,
+                        SrcTable.RowCount,
                         batchSize,
-                        PartSizesAll.Count, PartsNotEmpty.Count
+                        SrcTable.PtNotEmpty.Count, PartsNotEmpty.Count
                         ));
 
                 if (FillType != BackfillType.BulkInsert)
@@ -281,8 +284,18 @@ namespace DBBackfill
                                 }
                                 catch (Exception ex)
                                 {
-                                    trnMerge.Rollback();
-                                    throw new ApplicationException("BackfillWorkerLoop", ex);
+                                    //trnMerge.Rollback();
+                                    //throw new ApplicationException("BackfillWorkerLoop", ex);
+                                    Exception ex2 = ex;
+                                    BkfCtrl.CapturedException = ex; // Save the exception information 
+
+                                    for (int exNest = 0; ex2 != null; ++exNest)
+                                    {
+                                        BkfCtrl.DebugOutput(string.Format("Exception: [{0}] {1}", exNest, ex2.Message));
+                                        BkfCtrl.DebugOutput(string.Format("Exception: [{0}] {1}", exNest, ex2.StackTrace));
+                                        ex2 = ex2.InnerException;
+                                    }
+                                    throw new ApplicationException("Worker Error: ", ex);
                                 }
                             }
                         }
@@ -531,7 +544,6 @@ namespace DBBackfill
                 string.Join(", ", CopyColNames.Select(sd => string.Format("SRC.{0}", SrcTable[sd].NameQuoted)).ToArray()),
                 (DstTable.HasIdentity) ? "" : "-- ",
                 DstTable.DbName
-               // ,strMatched
                 );
 
 
