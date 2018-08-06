@@ -46,7 +46,7 @@ namespace DBBackfill
         public bool IsPartitioned { get; set; }
         public string PtScheme { get; set; }
         public string PtFunc { get; set; }
-        public int PtCount { get; protected set; }
+        public int PtCount { get; set; }
         public TableColInfo PtCol { get; set; }
 
         public List<TablePtInfo> PtNotEmpty = new List<TablePtInfo>(); // Information on individual partitions in the table
@@ -122,28 +122,33 @@ namespace DBBackfill
         //  Constants and strings
         //
         private string _sqlPartitionSizes = @"
-              SELECT	TAB.[object_id],
-                        SCH.[name] AS SchemaName,
-						TAB.[name] AS TableName,
-						COALESCE(PS.[name],'') AS PtSchemeName,
-						COALESCE(PF.[name], '') AS PtFunctionName,
-                        SUM(PT.[rows]) OVER ( PARTITION BY PT.[object_id] ) AS TotalRows ,
-                        COUNT(PT.partition_number) OVER ( PARTITION BY PT.[object_id], CASE WHEN PT.[rows] > 0 THEN 0 ELSE 1 END ) AS NotEmpty ,
-                        PT.partition_number ,
-                        PT.[rows]
-                FROM    sys.tables TAB
-                        INNER JOIN sys.schemas SCH ON ( TAB.[schema_id] = SCH.[schema_id] )
-                        INNER JOIN sys.indexes IDX ON ( TAB.[object_id] = IDX.[object_id] )
-                        INNER JOIN sys.partitions PT ON ( TAB.[object_id] = PT.[object_id] )
-                                                        AND ( IDX.index_id = PT.index_id )
-					    LEFT JOIN ( sys.partition_schemes PS
-                                    INNER JOIN sys.Partition_functions PF ON ( PS.function_id = PF.function_id )
-                                  ) ON ( IDX.data_space_id = PS.data_space_id )
-                WHERE   ( IDX.index_id IN ( 0, 1 ) )
-                        AND (( PT.[rows] > 0 ) OR (PS.[name] IS NULL))
-                ORDER BY SchemaName ,
-                        TableName ,
-                        PT.partition_number";
+        WITH PTR AS (
+           SELECT	TAB.[object_id],
+                                SCH.[name] AS SchemeName,
+						        TAB.[name] AS TableName,
+						        COALESCE(PS.[name],'') AS PtSchemeName,
+						        COALESCE(PF.[name], '') AS PtFunctionName,
+                                SUM(PT.[rows]) OVER ( PARTITION BY TAB.[object_id] ) AS TotalRows ,
+                                COUNT(PT.partition_number) OVER ( PARTITION BY TAB.[object_id] ) AS TotalParts ,
+                                PT.partition_number ,
+                                PT.[rows]
+                        FROM    sys.tables TAB
+                                INNER JOIN sys.schemas SCH ON ( TAB.[schema_id] = SCH.[schema_id] )
+                                INNER JOIN sys.indexes IDX ON ( TAB.[object_id] = IDX.[object_id] )
+                                INNER JOIN sys.partitions PT ON ( TAB.[object_id] = PT.[object_id] )
+                                                                AND ( IDX.index_id = PT.index_id )
+					            LEFT JOIN ( sys.partition_schemes PS
+                                            INNER JOIN sys.Partition_functions PF ON ( PS.function_id = PF.function_id )
+                                          ) ON ( IDX.data_space_id = PS.data_space_id )
+                        WHERE   ( IDX.index_id IN ( 0, 1 ) )
+				        )
+		        SELECT PTR.*,
+			         COUNT(PTR.partition_number) OVER ( PARTITION BY PTR.[object_id] ) AS NotEmpty 
+				        FROM PTR
+                       WHERE (( PTR.[rows] > 0 ) OR (PTR.[PtSchemeName] = ''))
+                        ORDER BY SchemeName ,
+                                TableName ,
+                                partition_number;";
 
 
         //  Get information on all the table columns
@@ -349,14 +354,18 @@ namespace DBBackfill
                         {
                             string ptScheme = (string)ptdr["PtSchemeName"];
                             if (string.IsNullOrEmpty(ptScheme))
+                            {
                                 curTable.IsPartitioned = false;
+                                curTable.PtCount = 1;
+                            }
                             else
                             {
                                 curTable.IsPartitioned = true;
                                 curTable.PtScheme = ptScheme;
                                 curTable.PtFunc = (string)ptdr["PtFunctionName"];
-                                curTable.RowCount = (Int64) ptdr["TotalRows"];
+                                curTable.PtCount = (int) ptdr["Totalparts"];
                             }
+                            curTable.RowCount = (Int64) ptdr["TotalRows"];
                         }
                         curTable.PtNotEmpty.Add(new TableInfo.TablePtInfo()
                         {

@@ -262,6 +262,8 @@ SELECT  {1}
         }
 
 
+        //  Build the logical expression use in the WHERE clause when comparing the key fields of rin/out of range
+        //
         private void BuildKeyCompare(StringBuilder sbOut, TableInfo srcTable, List<string> keyColNames, string keyPrefix, int keyValueCount, 
                                        bool isLowerLimit, bool isFirstFetch = false)
         {
