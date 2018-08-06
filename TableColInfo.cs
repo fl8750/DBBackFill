@@ -13,9 +13,6 @@ namespace DBBackfill
 
     public class TableColInfo
     {
-        //static private readonly Dictionary<string, bool> IgnoreDataTypes = new Dictionary<string, bool>(StringComparer.InvariantCultureIgnoreCase) { { "TIMESTAMP", false } };
-        //static private readonly Dictionary<string, bool> NoCompareTypes = new Dictionary<string, bool>(StringComparer.InvariantCultureIgnoreCase) { { "TEXT", false } };
-
         static private readonly Dictionary<string, TableColDatatype> DatatypeInfo = new Dictionary<string, TableColDatatype>(StringComparer.InvariantCultureIgnoreCase){
             { "TEXT", new TableColDatatype(){ConvertFormat = "CONVERT(VARCHAR(MAX), {0})"} },
             { "NTEXT", new TableColDatatype(){ConvertFormat = "CONVERT(NVARCHAR(MAX), {0})"} },

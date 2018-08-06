@@ -106,28 +106,6 @@ namespace DBBackfill
             IsPartitioned = false;  // Assume no partitioning
             Locked = true;
 
-            ////  Get the partition sizing info if "partition selection" is required
-            ////
-            //using (SqlCommand cmdPtSz = new SqlCommand(string.Format(_sqlPartitionSizes, SchemaName, TableName), dbConn)) // Source database command
-            //{
-            //    cmdPtSz.CommandType = CommandType.Text;
-            //    cmdPtSz.CommandTimeout = 600;
-            //    using (SqlDataReader srcPtRdr = cmdPtSz.ExecuteReader()) // Fetch data into a data reader
-            //    {
-            //        using (DataTable srcDt = new DataTable())
-            //        {
-            //            srcDt.Load(srcPtRdr); // Load the data into a DataTable
-            //            PtInfo = srcDt.AsEnumerable().OrderBy(pt => (int)pt["partition_number"]).Select(p =>
-            //                                                           new TablePtInfo() {
-            //                                                               PartitionNumber = (int)p["partition_number"],
-            //                                                               TotalRows = (Int64)p["TotalRows"],
-            //                                                               Rows = (Int64)p["rows"]
-            //                                                           }).ToList();
-            //            RowCount = (Int64)srcDt.Rows[0]["TotalRows"];  // Get the total row count from the first datarow
-            //        }
-            //    }
-            //}
-            //PartsNotEmpty = PartSizesAll.Keys.Where(pi => (PartSizesAll[pi] > 0)).OrderBy(pi => pi).ToList(); // Record the partition numbers that are not empty 
         }
 
         public TableInfo()
@@ -388,60 +366,6 @@ namespace DBBackfill
                     }
                 }
             }
-
-
-
-            //foreach (DataRow cdr in dtTblColInfo.Rows)
-            //{
-            //    string schemaName = (string) cdr["SchemaName"];
-            //    string tableName = (string) cdr["TableName"];
-            //    TableInfo curTbl = this[schemaName, tableName];
-            //    if (curTbl == null)
-            //    {
-            //        curTbl = new TableInfo(dbConn, dbConn.DataSource, dbName, schemaName, tableName, (int) cdr["object_id"]);
-            //        _tables.Add(curTbl.ObjectId, curTbl);
-            //    }
-
-            //    //  Create the next table column information object
-            //    //
-            //    TableColInfo newCol =
-            //        new TableColInfo(){
-            //            Name = (string) cdr["ColName"],
-            //            Datatype = (string) cdr["Datatype"],
-
-            //            IsPsCol = ((int)cdr["partition_ordinal"]) > 0,
-
-            //            ID = (int) cdr["column_id"],
-            //            KeyOrdinal = (int) cdr["key_ordinal"],
-            //            MaxLength = (int) (Int16) (cdr["max_length"] ?? 0),
-            //            PartitionOrdinal = (int) (cdr["partition_ordinal"] ?? 0),
-            //            Precision = (int) (byte) (cdr["precision"] ?? 0),
-            //            Scale = (int) (byte) (cdr["scale"] ?? 0),
-
-            //            IsComputed = (bool) cdr["is_computed"],
-            //            IsIdentity = (bool) cdr["is_identity"],
-            //            IsNullable = (bool) cdr["is_nullable"],
-            //            IsXmlDocument = (bool) cdr["is_xml_document"],
-            //            KeyDescending = ((int)cdr["is_descending_key"] != 0),
-
-            //            Ignore = false, 
-            //            LoadExpression = ""  // No custom value expression
-            //        };
-
-            //    curTbl.AddColumn(newCol); // Add to the column list 
-
-            //    if ((bool) cdr["is_identity"])
-            //        curTbl.HasIdentity = true; // Mark table as having an identity column
-
-            //    if ((int) cdr["is_partitioned"] != 0)
-            //    {
-            //        curTbl.IsPartitioned = true; // Mark table as "partitioned"
-            //        curTbl.PtScheme = (string) cdr["PtScheme"]; // Controlling scheme ...
-            //        curTbl.PtFunc = (string) cdr["PtFunc"]; // ... and function
-            //        if (newCol.IsPsCol)
-            //            curTbl.PtCol = newCol; // Save a reference to the partitioning column of this table
-            //    }
-            //}
 
         }
 
