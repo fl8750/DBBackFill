@@ -93,9 +93,12 @@ namespace DBBackfill
             EndKeyList.Add(newKey);
         }
 
+
         //  Constructed SQL commands
         //
+        public string FetchKeyLimitsSql = ""; // Fetch th keys of the last row in the next fetch row group
         public string FetchBatchSql = ""; // Get the next batch of rows
+
         public string FetchLastSql = ""; // Get the last row of the batch
 
 

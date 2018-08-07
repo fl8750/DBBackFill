@@ -9,25 +9,6 @@ namespace DBBackfill
 
     public partial class BackfillContext
     {
-        //private string _sqlPartitionSizes = @"
-        //        SELECT  SCH.name AS SchemaName ,
-        //                TAB.name AS TableName ,
-        //                SUM(PT.[rows]) OVER ( PARTITION BY PT.[object_id] ) AS TotalRows ,
-        //                PT.partition_number ,
-        //                PT.[rows]
-        //        FROM    sys.tables TAB
-        //                INNER JOIN sys.schemas SCH ON ( TAB.[schema_id] = SCH.[schema_id] )
-        //                INNER JOIN sys.indexes IDX ON ( TAB.[object_id] = IDX.[object_id] )
-        //                INNER JOIN sys.partitions PT ON ( TAB.[object_id] = PT.[object_id] )
-        //                                                AND ( IDX.index_id = PT.index_id )
-        //        WHERE   ( SCH.name = '{0}' )
-        //                AND ( TAB.name = '{1}' )
-        //                AND ( IDX.index_id IN ( 0, 1 ) )
-        //                AND ( PT.[rows] > 0 )
-        //        ORDER BY SchemaName ,
-        //                TableName ,
-        //                partition_number";
-
 
         //  Worker properties
         //
@@ -45,9 +26,6 @@ namespace DBBackfill
 
             int curFetchCount = 0; // Number of rows fetched from the source table
             int curMergeCount = 0; // Number of rows merged into the destination table
-
-            //Dictionary<int, Int64> PartSizesAll = new Dictionary<int, Int64>();    // Per partition row counts for all partitions.
-            List<int> PartsNotEmpty = new List<int>();    // Partition # of non-empty partitions.
 
 
             //  Prepare the SQL connections to the source and destination databases
@@ -84,36 +62,11 @@ namespace DBBackfill
                         this.BkfCtrl.Version
                        ));
 
-                //  Get the partition sizing info if "partition selection" is required
-                //
-                //using (SqlCommand cmdPtSz = new SqlCommand(string.Format(_sqlPartitionSizes, SrcTable.SchemaName, SrcTable.TableName), srcConn)) // Source database command
-                //{
-                //    cmdPtSz.CommandType = CommandType.Text;
-                //    cmdPtSz.CommandTimeout = 600;
-                //    using (SqlDataReader srcPtRdr = cmdPtSz.ExecuteReader()) // Fetch data into a data reader
-                //    {
-                //        using (DataTable srcDt = new DataTable())
-                //        {
-                //            srcDt.Load(srcPtRdr); // Load the data into a DataTable
-                //            PartSizesAll = srcDt.AsEnumerable().Select(p =>
-                //                new{
-                //                    PartNo = (int) p["partition_number"],
-                //                    Rows = (Int64) p["Rows"]
-                //                }).ToDictionary(pt => pt.PartNo, pt => pt.Rows);
-                //            SrcTable.RowCount = (Int64) srcDt.Rows[0]["TotalRows"];
-                //        }
-                //    }
-                //}
-                //PartsNotEmpty = SrcTable.PtInfo.Where(pi => (pi.Rows > 0))
-                //                        .OrderBy(pi => pi.PartitionNumber)
-                //                        .Select(pi => pi.PartitionNumber)
-                //                        .ToList(); // Record the partition numbers that are not empty 
-
                 //  Show the rowcount
                 BkfCtrl.DebugOutput(string.Format("      Rows: {0:#,##0}  BatchChunkSize: {1:#,##0}  Partitions(#/>0): {2:#,##0}/{3:#,##0}",
                         SrcTable.RowCount,
                         batchSize,
-                        SrcTable.PtNotEmpty.Count, PartsNotEmpty.Count
+                        SrcTable.PtCount, SrcTable.PtNotEmpty.Count
                         ));
 
                 if (FillType != BackfillType.BulkInsert)
@@ -128,16 +81,16 @@ namespace DBBackfill
                 if ( fkb.FlgRestart && (fkb.RestartPartition != 1))
                 {
                     BkfCtrl.DebugOutput(string.Format("      Restart partition: {0}", fkb.RestartPartition));
-                    for (ptIdx = 0; ptIdx < PartsNotEmpty.Count; ptIdx++)
-                        if (PartsNotEmpty[ptIdx] >= fkb.RestartPartition)
+                    for (ptIdx = 0; ptIdx < SrcTable.PtNotEmpty.Count; ptIdx++)
+                        if (SrcTable.PtNotEmpty[ptIdx].PartitionNumber >= fkb.RestartPartition)
                             break; // If the selected partition does exists then start at the next highest or the last
                 }
 
                 //  Partition Loop -- Once per partition
                 //
-                for (; ptIdx < ((fkb.FlgSelectByPartition) ? PartsNotEmpty.Count : 1); ptIdx++)
+                for (; ptIdx < ((fkb.FlgSelectByPartition) ? SrcTable.PtNotEmpty.Count : 1); ptIdx++)
                 {
-                    int curPartition = PartsNotEmpty[ptIdx];    // Current partition number
+                    int curPartition = SrcTable.PtNotEmpty[ptIdx].PartitionNumber;    // Current partition number
                     hasRestarted = true;  // Assume a restart at the start of each partition
 
                     //  
@@ -216,7 +169,9 @@ namespace DBBackfill
                             {
                                 fkb.BuildFetchQuery(cmdSrcDb, SrcTable, batchSize, curPartition, (FetchLoopCount == 0), CopyColNames, srcKeyNames, currentFKeyList);
 
-                                cmdSrcDb.CommandText = fkb.FetchBatchSql;
+                                //  First, fetch the end key limits
+                                //
+                                cmdSrcDb.CommandText = fkb.FetchKeyLimitsSql;
                                 cmdSrcDb.CommandType = CommandType.Text;
                                 cmdSrcDb.CommandTimeout = BkfCtrl.CommandTimeout;
 
@@ -226,17 +181,46 @@ namespace DBBackfill
                                     srcRdr.Close(); // Close the reader
                                 }
 
+                                //  If there are any rows in the range, continue to the fetch 
+                                //
+                                if (srcDt.Rows.Count > 0)
+                                {
+                                    for (int idx = 0; idx < srcKeyNames.Count; idx++)
+                                    {
+                                        string pName = string.Format("@lk{0}", idx + 1);
+                                        if (!cmdSrcDb.Parameters.Contains(pName))
+                                        {
+                                            SqlDbType dbType = (SqlDbType) Enum.Parse(typeof(SqlDbType), SrcTable[srcKeyNames[idx]].Datatype, true);
+                                            cmdSrcDb.Parameters.Add(pName, dbType);
+                                        }
+
+                                        cmdSrcDb.Parameters[pName].Value = srcDt.Rows[0][srcKeyNames[idx]];
+                                    }
+
+                                    nextFKeyList = fkb.FetchNextKeyList(srcDt.Rows[0]); // Get the last row key
+                                    srcDt.Clear(); // Clear out the current contents of the DataTable
+
+                                    //  Now fetch the next batch of rows
+                                    //
+                                    cmdSrcDb.CommandText = fkb.FetchBatchSql;
+                                    cmdSrcDb.CommandType = CommandType.Text;
+                                    cmdSrcDb.CommandTimeout = BkfCtrl.CommandTimeout;
+
+                                    using (SqlDataReader srcRdr = cmdSrcDb.ExecuteReader()) // Fetch data into a data reader
+                                    {
+                                        srcDt.Load(srcRdr); // Load the data into a DataTable
+                                        srcRdr.Close(); // Close the reader
+                                    }                                  
+                                }
+                                else
+                                {
+                                    nextFKeyList = new List<object>();  // Nothing scanned
+                                }
+
                                 //  Get the key values from the last row in the batch
                                 //
                                 curFetchCount = srcDt.Rows.Count;
                                 if (curFetchCount <= 0) break; // Nothing fetched, exit the data pump loop
-                                //if (IsSrcDstEqual)
-                                //{
-                                //    curFetchCount = (int) (Int64) srcDt.Rows[0]["__ROWS__"]; // Get the real fetch count
-                                //    nextFKeyList = fkb.FetchNextKeyList(srcDt.Rows[0]); // Get the last row keys
-                                //}
-                                //else
-                                nextFKeyList = fkb.FetchNextKeyList(srcDt.Rows[curFetchCount - 1]); // Get the last row key
                                 FetchRowCount += curFetchCount;
 
                                 ++FetchLoopCount; // Increment the loop count
@@ -284,8 +268,7 @@ namespace DBBackfill
                                 }
                                 catch (Exception ex)
                                 {
-                                    //trnMerge.Rollback();
-                                    //throw new ApplicationException("BackfillWorkerLoop", ex);
+                                    trnMerge.Rollback();
                                     Exception ex2 = ex;
                                     BkfCtrl.CapturedException = ex; // Save the exception information 
 
@@ -295,7 +278,7 @@ namespace DBBackfill
                                         BkfCtrl.DebugOutput(string.Format("Exception: [{0}] {1}", exNest, ex2.StackTrace));
                                         ex2 = ex2.InnerException;
                                     }
-                                    throw new ApplicationException("Worker Error: ", ex);
+                                    throw new ApplicationException("BackfillWorker Exception: ", ex);
                                 }
                             }
                         }
@@ -348,15 +331,19 @@ namespace DBBackfill
             catch (Exception ex)
             {
                 Exception ex2 = ex;
-                BkfCtrl.CapturedException = ex; // Save the exception information 
 
-                for (int exNest = 0; ex2 != null; ++exNest)
+                if (ex2.GetType().Name != typeof(ApplicationException).Name)
                 {
-                    BkfCtrl.DebugOutput(string.Format("Exception: [{0}] {1}", exNest, ex2.Message));
-                    BkfCtrl.DebugOutput(string.Format("Exception: [{0}] {1}", exNest, ex2.StackTrace));
-                    ex2 = ex2.InnerException;
+                    BkfCtrl.CapturedException = ex; // Save the exception information 
+
+                    for (int exNest = 0; ex2 != null; ++exNest)
+                    {
+                        BkfCtrl.DebugOutput(string.Format("Exception: [{0}] {1}", exNest, ex2.Message));
+                        BkfCtrl.DebugOutput(string.Format("Exception: [{0}] {1}", exNest, ex2.StackTrace));
+                        ex2 = ex2.InnerException;
+                    }
+                    throw new ApplicationException("Worker Error: ", ex);
                 }
-                throw new ApplicationException("Worker Error: ", ex);
             }
             finally
             {
@@ -402,7 +389,7 @@ namespace DBBackfill
                 {
                     BkfCtrl.DebugOutput(string.Format("Exception: {0}", ex.Message));
                     BkfCtrl.DebugOutput(string.Format("Exception: {0}", ex.StackTrace));
-                    return 0;
+                    throw new ApplicationException("BulkInsertIntoTable: ", ex);
                 }
             }
         }
@@ -474,45 +461,7 @@ namespace DBBackfill
             {
                 dstConn.ChangeDatabase(strSavedDatabase);
             }
-            
-            //
-            //  Create the matched record portion of the MERGE command
-            //
-            //StringBuilder sbMatched = new StringBuilder();
 
-            //List<TableColInfo> testCols = DstTable.Where(tci => (CopyColNames.Contains(tci.Name))).Where(tci => (!dstKeyNames.Contains(tci.Name))).ToList();
-
-            //if (testCols.Count > 0)
-            //{
-            //    sbMatched.AppendLine("WHEN MATCHED AND (");
-            //    for (int idx = 0; idx < testCols.Count; idx++)
-            //    {
-            //        TableColInfo tci = testCols[idx];
-            //        if ((!tci.IsComparable) || (tci.IsIdentity)) continue;
-            //        sbMatched.Append("                                                  (");
-            //        sbMatched.AppendFormat(
-            //            tci.IsNullable
-            //                ? @"(CASE WHEN (SRC.{0} IS NULL AND DST.{0} IS NULL) THEN 0 WHEN (SRC.{0} IS NULL OR DST.{0} IS NULL) THEN 1 
-            //                                        WHEN ({1} <> {2}) THEN 1 ELSE 0 END) = 1"
-            //                : @"{1} <> {2}",
-            //            tci.NameQuoted,
-            //            tci.CmpValue("SRC"),
-            //            tci.CmpValue("DST"));
-            //        sbMatched.AppendFormat(") {0} \n", (idx < (testCols.Count - 1)) ? "OR" : "");
-            //    }
-            //    sbMatched.AppendLine(") ");
-
-            //    sbMatched.AppendLine("                                                    THEN UPDATE SET  ");
-            //    for (int idx = 0; idx < testCols.Count; idx++)
-            //    {
-            //        TableColInfo tci = testCols[idx];
-            //        if (tci.IsIdentity) continue; // skip updating an identity column
-            //        sbMatched.AppendFormat("                                                      {0} = SRC.{0} ", tci.NameQuoted);
-            //        sbMatched.AppendLine((idx < (testCols.Count - 1)) ? "," : "");
-            //    }
-            //}
-
-            //string strMatched = sbMatched.ToString();
 
             //  Prepare the MERGE statement for the destination side
             //
@@ -546,16 +495,6 @@ namespace DBBackfill
                 DstTable.DbName
                 );
 
-
-            //MERGE INTO { 0}
-            //AS DST
-            //USING { 1}
-            //AS SRC
-            //ON({ 2})
-            //WHEN NOT MATCHED BY TARGET THEN
-            //INSERT({ 3})
-            //VALUES({ 4})
-            //{ 7};
         }
 
     }

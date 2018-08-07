@@ -14,7 +14,8 @@ namespace DBBackfill
     /// </summary>
     public class FetchKeyBoundary : FetchKeyBase
     {
-
+        //  SQL Query to find the key column jvalues on the last row of the next fetch group (by key order)
+        //
         private string strKeyLimits = @"
 SELECT  {1}
     FROM (
@@ -31,6 +32,8 @@ SELECT  {1}
     WHERE (LM2.[__LastNum] = 1);
 ";
 
+        //  SQL query to return the next XXXX rows 
+        //
         private string strFetchRows = @"
 SELECT  {1}
     FROM {0}
@@ -66,27 +69,27 @@ SELECT  {1}
             //
             StringBuilder sbFetch = new StringBuilder(); // The main fetch command stringbuilder
 
-            StringBuilder sbDeclare = new StringBuilder(); // The declaration of the end limit capture variables
-            StringBuilder sbCapture = new StringBuilder(); // The capture of the end limits
+            //StringBuilder sbDeclare = new StringBuilder(); // The declaration of the end limit capture variables
+            //StringBuilder sbCapture = new StringBuilder(); // The capture of the end limits
             StringBuilder sbSelectList = new StringBuilder(); // Select column list
-            StringBuilder sbDstColList = new StringBuilder(); // Destination column list
+            //StringBuilder sbDstColList = new StringBuilder(); // Destination column list
             StringBuilder sbKeyList = new StringBuilder(); // List of source key columns
 
             for (int idx = 0; idx < keyColNames.Count; idx++)
             {
                 //  Add the declaration of the variables used to hold the last keys fetche in the batch
                 //
-                sbDeclare.AppendFormat("DECLARE   @lk{0}   {1}; -- {2}\n",
-                    idx + 1,
-                    srcTable[keyColNames[idx]].DatatypeFull,
-                    srcTable[keyColNames[idx]].NameQuoted);
+                //sbDeclare.AppendFormat("DECLARE   @lk{0}   {1}; -- {2}\n",
+                //    idx + 1,
+                //    srcTable[keyColNames[idx]].DatatypeFull,
+                //    srcTable[keyColNames[idx]].NameQuoted);
 
                 //  Now capture the last fetched values
                 //
-                sbCapture.AppendFormat("      @lk{0} = {1}{2}\n",
-                    idx + 1,
-                    srcTable[keyColNames[idx]].NameQuoted,
-                    (idx == (keyColNames.Count - 1)) ? "" : ",");
+                //sbCapture.AppendFormat("      @lk{0} = {1}{2}\n",
+                //    idx + 1,
+                //    srcTable[keyColNames[idx]].NameQuoted,
+                //    (idx == (keyColNames.Count - 1)) ? "" : ",");
 
                 //  Select the key columns from the source table
                 //
@@ -141,7 +144,7 @@ SELECT  {1}
                     if (!srcCmd.Parameters.Contains(pName))
                     {
                         SqlDbType dbType = (SqlDbType)Enum.Parse(typeof(SqlDbType), srcTable[keyColNames[idx]].Datatype, true);
-                        srcCmd.Parameters.Add(pName, new SqlParameter(pName, dbType));
+                        srcCmd.Parameters.Add(pName, dbType);
                     }
                     srcCmd.Parameters[pName].Value = EndKeyList[idx];
                 }
@@ -150,21 +153,24 @@ SELECT  {1}
 
             // Now build the full fetch script
             //
-            sbFetch.Append(sbDeclare.ToString());
+            //sbFetch.Append(sbDeclare.ToString());
             sbFetch.AppendFormat(strKeyLimits,
                 srcTable.FullTableName,
-                sbCapture.ToString(),
+                //sbCapture.ToString(),
+                sbSelectList.ToString(),
                 sbSelectList.ToString(),
                 (whereCnt == 0) ? "" : sbWhere.ToString(),
                 sbKeyList.ToString(),
                 batchSize
             );
+            FetchKeyLimitsSql = sbFetch.ToString(); // Save th key limit query SQL
 
 
             // ===========================================================================
             //
             //  Now build the full rows fetch
             //
+            sbFetch = new StringBuilder(); // Reset the string builder
             sbFetch.AppendFormat(strFetchRows,
                 srcTable.FullTableName,
                 string.Join(
@@ -207,7 +213,7 @@ SELECT  {1}
                     if (!srcCmd.Parameters.Contains(pName))
                     {
                         SqlDbType dbType = (SqlDbType)Enum.Parse(typeof(SqlDbType), srcTable[keyColNames[idx]].Datatype, true);
-                        srcCmd.Parameters.Add(pName, new SqlParameter(pName, dbType));
+                        srcCmd.Parameters.Add(pName, dbType);
                     }
                     srcCmd.Parameters[pName].Value = curKeys[idx];
                 }
@@ -222,41 +228,42 @@ SELECT  {1}
 
             BuildKeyCompare(sbFetch, srcTable, keyColNames, "lk", keyColNames.Count, false);
 
+            FetchBatchSql = sbFetch.ToString();  // Save the row fetch query
 
-            //
-            // ===================================================================================================
-            // Fetch the next range of data rows 
-            //
-            StringBuilder sbFetchBatch = new StringBuilder();
+            ////
+            //// ===================================================================================================
+            //// Fetch the next range of data rows 
+            ////
+            //StringBuilder sbFetchBatch = new StringBuilder();
 
-            sbFetchBatch.Append(sbFetch.ToString()); // Include the previous CTE
+            //sbFetchBatch.Append(sbFetch.ToString()); // Include the previous CTE
 
 
-            //sbFetchBatch.AppendFormat("  SELECT \n");
-            //sbFetchBatch.AppendFormat("      {0} \n", string.Join(", ", copyColNames.Select(ccn => string.Format("[{0}]", ccn)).ToArray()));
-            //sbFetchBatch.AppendFormat("      FROM SRCTAB \n");
+            ////sbFetchBatch.AppendFormat("  SELECT \n");
+            ////sbFetchBatch.AppendFormat("      {0} \n", string.Join(", ", copyColNames.Select(ccn => string.Format("[{0}]", ccn)).ToArray()));
+            ////sbFetchBatch.AppendFormat("      FROM SRCTAB \n");
 
-            FetchBatchSql = sbFetchBatch.ToString();
+            //FetchBatchSql = sbFetchBatch.ToString();
 
-            //
-            // ===================================================================================================
-            //
-            StringBuilder sbFetchLast = new StringBuilder();
+            ////
+            //// ===================================================================================================
+            ////
+            //StringBuilder sbFetchLast = new StringBuilder();
 
-            sbFetchLast.Append(sbFetch.ToString()); // Include the previous CTE
-            sbFetchLast.AppendFormat("INSERT INTO {{0}} \n");
-            sbFetchLast.AppendFormat("  ({0}) \n", string.Join(", \n    ", copyColNames.Select(ccn => string.Format("[{0}]", ccn)).ToArray()));
-            sbFetchLast.AppendFormat("  SELECT \n");
-            sbFetchLast.AppendFormat("      {0} \n", string.Join(", ", copyColNames.Select(ccn => string.Format("[{0}]", ccn)).ToArray()));
-            sbFetchLast.AppendFormat("      FROM SRCTAB \n");
-            sbFetchLast.AppendFormat("-- \n");
-            sbFetchLast.Append(sbFetch.ToString()); // Include the previous CTE
-            sbFetchLast.AppendFormat("  SELECT TOP 1 [__ROWS__], \n");
-            sbFetchLast.AppendFormat("      {0} \n", string.Join(", ", keyColNames.Select(ccn => string.Format("[{0}]", ccn)).ToArray()));
-            sbFetchLast.AppendFormat("      FROM SRCTAB \n");
-            sbFetchLast.AppendFormat("      ORDER BY [__ROWS__] DESC \n");
+            //sbFetchLast.Append(sbFetch.ToString()); // Include the previous CTE
+            //sbFetchLast.AppendFormat("INSERT INTO {{0}} \n");
+            //sbFetchLast.AppendFormat("  ({0}) \n", string.Join(", \n    ", copyColNames.Select(ccn => string.Format("[{0}]", ccn)).ToArray()));
+            //sbFetchLast.AppendFormat("  SELECT \n");
+            //sbFetchLast.AppendFormat("      {0} \n", string.Join(", ", copyColNames.Select(ccn => string.Format("[{0}]", ccn)).ToArray()));
+            //sbFetchLast.AppendFormat("      FROM SRCTAB \n");
+            //sbFetchLast.AppendFormat("-- \n");
+            //sbFetchLast.Append(sbFetch.ToString()); // Include the previous CTE
+            //sbFetchLast.AppendFormat("  SELECT TOP 1 [__ROWS__], \n");
+            //sbFetchLast.AppendFormat("      {0} \n", string.Join(", ", keyColNames.Select(ccn => string.Format("[{0}]", ccn)).ToArray()));
+            //sbFetchLast.AppendFormat("      FROM SRCTAB \n");
+            //sbFetchLast.AppendFormat("      ORDER BY [__ROWS__] DESC \n");
 
-            FetchLastSql = sbFetchLast.ToString();
+            //FetchLastSql = sbFetchLast.ToString();
 
             //return;
         }
