@@ -13,11 +13,6 @@ namespace DBBackfill
         //
         public string Name { get; protected set; } //  Name of this FetchKey
 
-        //public bool IsValid
-        //{
-        //    get { return ((StartKeyList.Count > 0) && (EndKeyList.Count > 0)); } // True if actual keys fetched
-        //}
-
         //  Source Table info
         //
         public TableInfo FKeySrcTable { get; protected set; } // Reference to information on the source table 
@@ -34,7 +29,7 @@ namespace DBBackfill
         public List<object> EndKeyList { get; private set; }
         public List<object> RestartKeyList { get; private set; }
 
-
+        //  Backfill 
         private BackfillType _fillType;
         public BackfillType FillType
         {
@@ -67,20 +62,6 @@ namespace DBBackfill
             }
         }
 
-        //public List<object> RestartKeys;
-
-        // Keys used for restart
-        //{
-        //    get
-        //    {
-        //        return _restartKeyList;
-        //    }
-        //    set
-        //    {
-        //        //if ((value != null) && (value.Count > 0)) FlgRestart = true;
-        //        _restartKeyList = value;
-        //    }
-        //}
 
         public void AddRestartKey(object newKey)
         {

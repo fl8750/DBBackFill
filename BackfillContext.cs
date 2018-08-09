@@ -9,7 +9,6 @@ namespace DBBackfill
     public enum BackfillType
     {
         BulkInsert = 1, // Bulk insert into dest table
-        //BulkInsertMerge, // Bulk insert into dest table with fallback to merge
         Merge, // Merge data into dest table3
         GapFill // Find gaps in the destination table and insert the proper source data row
     }

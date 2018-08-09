@@ -122,44 +122,10 @@ namespace DBBackfill
                     FetchLoopCount = 0; // Number of completed fetchs
                     while (true)
                     {
-                        //int partNo = PartsNotEmpty[ptIdx];
                         string sqlFetchData = "";
                         List<object> nextFKeyList;
 
                         SqlTransaction trnMerge;
-                        //Dictionary<string, SqlParameter> fetchParamList = new Dictionary<string, SqlParameter>();
-
-                        //  Build the SQL command to fetch the next set of rows
-                        //
-                        //fkb.BuildFetchQuery(SrcTable, fetchParamList, curPartition, FetchLoopCount, srcKeyNames, currentFKeyList);
-
-                        //SqlConnection tmpConn = null;
-                        //if (IsSrcDstEqual)
-                        //if (FillType == BackfillType.BulkInsert)
-                        //{
-                        //    //  Build the final batch fetch SQL command
-                        //    //
-                        //    sqlFetchData = string.Format(
-                        //        fkb.FetchLastSql,
-                        //        batchSize,
-                        //        string.Join(", \n           ", CopyColNames.Select(ccn => string.Format("[{0}]", ccn)).ToArray()),
-                        //        DstTempFullTableName
-                        //        ); // Complete the fetch query setup
-                        //    tmpConn = dstConn;
-                        //}
-
-                        //else
-                        //if (FillType == BackfillType.BulkInsert)
-                        //    {
-                        //    //  Build the final batch fetch SQL command
-                        //    //
-                        //    sqlFetchData = string.Format(
-                        //        fkb.FetchBatchSql,
-                        //        batchSize,
-                        //        string.Join(", \n       ", CopyColNames.Select(ccn => string.Format("[{0}]", ccn)).ToArray())
-                        //        ); // Complete the fetch query setup
-                        //    tmpConn = srcConn;
-                        //}
 
                         //   Fetch the next set of rows into a DataTable
                         //
@@ -393,7 +359,6 @@ namespace DBBackfill
                 }
             }
         }
-
 
 
         // ===============================================================================================================================
