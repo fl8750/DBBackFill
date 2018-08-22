@@ -18,6 +18,10 @@ namespace DBBackfill
         public TableInfo FKeySrcTable { get; protected set; } // Reference to information on the source table 
         public List<string> FKeyColNames { get; protected set; }
 
+        //  Destination Table Info
+        //
+        public TableInfo FKeyDstTable { get; protected set; }
+
         //  Boolean properties
         //
         public bool FlgOrderBy = true;
@@ -99,10 +103,12 @@ namespace DBBackfill
         //
         //  Constructors
         //
-        public FetchKeyBase(TableInfo srcTable, List<string> keyColNames)
+        public FetchKeyBase(TableInfo srcTable, List<string> keyColNames, TableInfo dstTable = null)
         {
             FKeySrcTable = srcTable;
             FKeyColNames = keyColNames;
+
+            FKeyDstTable = dstTable;
 
             StartKeyList = new List<object>(); // Initialize the start/end key lists
             EndKeyList = new List<object>();

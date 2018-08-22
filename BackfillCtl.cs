@@ -117,8 +117,20 @@ namespace DBBackfill
                 fkb = srcTable.CreateFetchKeyComplete(srcKeyNames);  // If no FetchKey specified, assume a full table scan
             }
 
-            bfCtx.FillType = fkb.FillType; 
+            bfCtx.FillType = fkb.FillType;
             bfCtx.BackfillData(fkb, batchSize, srcKeyNames ?? fkb.FKeyColNames, dstKeyNames);
+            bfCtx.Dispose();
+        }
+
+
+        public void BackfillData(FetchKeyBoundary fkb, List<string> copyColNames,
+                                 int batchSize,
+                                 List<string> srcKeyNames = null, List<string> dstKeyNames = null)
+        {
+            BackfillContext bfCtx = new BackfillContext(this, fkb.FKeySrcTable, fkb.FKeyDstTable, copyColNames);
+
+            bfCtx.FillType = fkb.FillType;
+            bfCtx.BackfillData(fkb, batchSize, fkb.FKeyColNames, dstKeyNames);
             bfCtx.Dispose();
         }
 

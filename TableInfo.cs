@@ -346,7 +346,8 @@ namespace DBBackfill
                     int objectID = (int)PtInfo.Key;  // Get the objectID for this table
                     TableInfo curTable = this[objectID];
                     if (curTable == null)
-                        throw new ApplicationException(string.Format("Unknown table: ID-[{0}]", objectID));
+                        continue;
+                        //throw new ApplicationException(string.Format("Unknown table: ID-[{0}]", objectID));
 
                     foreach (DataRow ptdr in PtInfo)
                     {

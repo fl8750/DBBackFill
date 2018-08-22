@@ -301,12 +301,13 @@ namespace DBBackfill
                 if (ex2.GetType().Name != typeof(ApplicationException).Name)
                 {
                     BkfCtrl.CapturedException = ex; // Save the exception information 
-
-                    for (int exNest = 0; ex2 != null; ++exNest)
+                    int exNest = 0;
+                    while (ex2 != null)
                     {
                         BkfCtrl.DebugOutput(string.Format("Exception: [{0}] {1}", exNest, ex2.Message));
                         BkfCtrl.DebugOutput(string.Format("Exception: [{0}] {1}", exNest, ex2.StackTrace));
                         ex2 = ex2.InnerException;
+                        ++exNest;
                     }
                     throw new ApplicationException("Worker Error: ", ex);
                 }
@@ -431,33 +432,34 @@ namespace DBBackfill
             //  Prepare the MERGE statement for the destination side
             //
             QryDataMerge = string.Format(@" 
-        USE [{6}];
+        USE [{0}];
         SET NOCOUNT ON;
         BEGIN TRANSACTION;
         DECLARE @delCount INT;
         DECLARE @insCount INT;
-        {5}SET IDENTITY_INSERT {0} ON;                                     
-        DELETE DST
-            FROM {0} DST
+        {3}SET IDENTITY_INSERT {2} ON;                                     
+        DELETE {7} -- DST
+            FROM {2} DST
                 INNER JOIN {1} SRC 
-                ON ({2});
+                ON ({4});
         SET @delCount=@@ROWCOUNT;
-        INSERT INTO {0} 
-                    ({3})
-                SELECT {4}
+        INSERT INTO {2} 
+                    ({5})
+                SELECT {6}
                     FROM {1} SRC;
         SET @insCount=@@ROWCOUNT;
-        {5}SET IDENTITY_INSERT {0} OFF;
+        {3}SET IDENTITY_INSERT {2} OFF;
         TRUNCATE TABLE {1}
         COMMIT TRANSACTION;
         SELECT @delCount AS [_DelCount_], @insCount AS [_InsCount_];",
-                DstTable.FullTableName,
+                DstTable.DbName,
                 DstTempFullTableName,
+                DstTable.FullTableName,
+                (DstTable.HasIdentity) ? "" : "-- ",
                 string.Join(" AND ", dstKeyNames.Where(kc => (SrcTable[kc].IsComparable)).Select(kc => string.Format("(SRC.{0} = DST.{0})", DstTable[kc].NameQuoted)).ToArray()),
                 string.Join(", ", CopyColNames.Select(dc => SrcTable[dc].NameQuoted).ToArray()),
                 string.Join(", ", CopyColNames.Select(sd => string.Format("SRC.{0}", SrcTable[sd].NameQuoted)).ToArray()),
-                (DstTable.HasIdentity) ? "" : "-- ",
-                DstTable.DbName
+                (FillType == BackfillType.GapFill) ? "SRC" : "DST"
                 );
 
         }

@@ -2,10 +2,8 @@
 using System.Collections.Generic;
 using System.Data;
 using System.Data.SqlClient;
-using System.IO;
 using System.Linq;
 using System.Text;
-using System.Xml.Serialization;
 
 namespace DBBackfill
 {
@@ -14,6 +12,13 @@ namespace DBBackfill
     /// </summary>
     public class FetchKeyBoundary : FetchKeyBase
     {
+        //  Extra properties needed for this derived class
+        //
+        public bool FKRelationPresent { get; protected set; } // If true, then a foreign key relation is used on each data row fetch
+        public TableInfo FKTable { get; protected set; }  // If not null, then a reference to a foreign/parent table
+        public TableColInfo FKSrcTableCol { get; protected set; }  // If FKSrcTable not null, then reference to source table column
+        public TableColInfo FKTableCol { get; protected set; } // If FKSrcTable not null, then reference to foreign table column
+
         //  SQL Query to find the key column jvalues on the last row of the next fetch group (by key order)
         //
         private string strKeyLimits = @"
@@ -36,8 +41,35 @@ SELECT  {1}
         //
         private string strFetchRows = @"
 SELECT  {1}
-    FROM {0}
+    FROM {0} SRC
 ";
+
+        private string strFetchRowsFK = @"
+SELECT  {1}
+    FROM {0} SRC
+        INNER JOIN {2} FK
+            ON (SRC.{3} = FK.{4})
+";
+
+        //
+        //
+        //  Methods
+        //
+        public void SetRelatedTable(TableInfo fkTable, TableColInfo fkTableCol, TableColInfo fkSrcTableCol)
+        {
+            if ((fkTable != null) && (fkTableCol != null) && (fkSrcTableCol != null))
+            {
+                FKTable = fkTable; // Save reference o foreign table
+                FKTableCol = fkTableCol; // Save column referene in foreign table
+                FKSrcTableCol = fkSrcTableCol; // Save reference to column in source table
+                FKRelationPresent = true;
+            }
+            else
+            {
+                throw new ApplicationException("Improper call to SetRelatedTable");
+            }
+        }
+
 
 
         public override List<object> FetchNextKeyList(DataRow lastDataRow)
@@ -51,13 +83,13 @@ SELECT  {1}
         /// <param name="srcCmd"></param>
         /// <param name="srcTable"></param>
         /// <param name="batchSize"></param>
-        /// <param name="partNumber"></param>
+        /// <param name="curPtNumber"></param>
         /// <param name="isFirstFetch"></param>
         /// <param name="copyColNames"></param>
         /// <param name="keyColNames"></param>
         /// <param name="curKeys"></param>
         public override void BuildFetchQuery(SqlCommand srcCmd, TableInfo srcTable, int batchSize,
-                                             int partNumber, bool isFirstFetch, List<string> copyColNames, List<string> keyColNames, List<object> curKeys)
+                                             int curPtNumber, bool isFirstFetch, List<string> copyColNames, List<string> keyColNames, List<object> curKeys)
         {
             int skCnt = curKeys.Count;
             if (skCnt > keyColNames.Count) skCnt = keyColNames.Count; // Calc the number of beginning limits values
@@ -97,7 +129,7 @@ SELECT  {1}
             //
             if ((FlgSelectByPartition) && (srcTable.PtFunc != null))
             {
-                sbWhere.AppendFormat("\n                    WHERE ($PARTITION.[{0}]({1}) = {2}) \n                    ", srcTable.PtFunc, srcTable.PtCol.NameQuoted, partNumber);
+                sbWhere.AppendFormat("\n                    WHERE ($PARTITION.[{0}]({1}) = {2}) \n                    ", srcTable.PtFunc, srcTable.PtCol.NameQuoted, curPtNumber);
                 ++whereCnt;
             }
 
@@ -119,7 +151,7 @@ SELECT  {1}
 
                 BuildKeyCompare(sbWhere, srcTable, keyColNames, "ek", ekCnt, false);
 
-                //  Create th SqlParameters for this command
+                //  Create the SqlParameters for this command
                 //
                 for (int idx = 0; idx < ekCnt; ++idx) // Prepare the start key value parameters
                 {
@@ -160,7 +192,7 @@ SELECT  {1}
                             .Where(col => !col.Value.Ignore)
                             .OrderBy(col => col.Value.ID)
                             .Select(col => string.IsNullOrEmpty(col.Value.LoadExpression) 
-                                        ? col.Value.NameQuoted
+                                        ? String.Concat("SRC.", (object) col.Value.NameQuoted)
                                         : String.Concat(col.Value.LoadExpression, " AS ", col.Value.NameQuoted))
                             .ToArray())
             );
@@ -173,7 +205,7 @@ SELECT  {1}
             //
             if ((FlgSelectByPartition) && (srcTable.PtFunc != null))
             {
-                sbFetch.AppendFormat("       WHERE ($PARTITION.[{0}]({1}) = {2}) \n", srcTable.PtFunc, srcTable.PtCol.NameQuoted, partNumber);
+                sbFetch.AppendFormat("       WHERE ($PARTITION.[{0}]({1}) = {2}) \n", srcTable.PtFunc, srcTable.PtCol.NameQuoted, curPtNumber);
                 ++whereCnt;
             }
 
@@ -203,8 +235,6 @@ SELECT  {1}
 
             //  Construct the end key limit boolean expression
             //
-            //if (ekCnt > 0)
-            //{
             sbFetch.AppendFormat("      {0} \n", (whereCnt++ == 0) ? "WHERE" : "AND"); // Add the proper keyword
 
             BuildKeyCompare(sbFetch, srcTable, keyColNames, "lk", keyColNames.Count, false);
@@ -214,15 +244,26 @@ SELECT  {1}
         }
 
 
+        //  Output a WHERE Clause expression
+        //
+        public StringBuilder BuildSelectFromSrc()
+        {
+            return null;
+        }
+
+
+
+
         //  Build the logical expression use in the WHERE clause when comparing the key fields of rin/out of range
         //
         private void BuildKeyCompare(StringBuilder sbOut, TableInfo srcTable, List<string> keyColNames, string keyPrefix, int keyValueCount, 
                                        bool isLowerLimit, bool isFirstFetch = false)
         {
-            sbOut.Append("        ("); // Construct the logical clauses to mark the beginning of the fetch range
+            // Construct the logical clauses to mark the beginning of the fetch range
+            sbOut.Append("        ("); 
             for (int oidx = keyValueCount; oidx > 0; oidx--)
             {
-                sbOut.Append("(");
+                if (keyValueCount > 1) sbOut.Append("(");
                 for (int iidx = 0; iidx < oidx; ++iidx)
                 {
                     sbOut.AppendFormat("({0} {1} @{3}{2})",
@@ -240,10 +281,10 @@ SELECT  {1}
                         keyPrefix);
                     if ((oidx - iidx) > 1) sbOut.Append(" AND ");
                 }
+                if (keyValueCount > 1) sbOut.Append(")");
 
-                sbOut.Append(")");
                 if (oidx > 1)
-                { 
+                {
                     sbOut.AppendLine(" OR ");
                     sbOut.Append("        ");
                 }
@@ -256,8 +297,11 @@ SELECT  {1}
 
         //  Constructors
         //
-        public FetchKeyBoundary(TableInfo srcTable, List<string> keyColNames)
-            : base(srcTable, keyColNames) { }
+        public FetchKeyBoundary(TableInfo srcTable, List<string> keyColNames, TableInfo dstTable = null)
+            : base(srcTable, keyColNames, dstTable)
+        {
+            FKRelationPresent = false;
+        }
     }
 
 
