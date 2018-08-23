@@ -71,6 +71,16 @@ SELECT  {1}
         }
 
 
+        public void AddFetchCol(TableColInfo newCol, string loadExpression)
+        {
+            if (!FKeyDataCols.Exists(dc => (dc.Name == newCol.Name)))
+            {
+                newCol.LoadExpression = loadExpression;  // Add the load expression needed to load data not in the src table
+                FKeyDataCols.Add(newCol);
+            }
+        }
+
+
 
         public override List<object> FetchNextKeyList(DataRow lastDataRow)
         {
@@ -297,6 +307,12 @@ SELECT  {1}
 
         //  Constructors
         //
+        public FetchKeyBoundary(TableInfo srcTable, string keyColNames, TableInfo dstTable = null)
+            : base(srcTable, keyColNames, dstTable)
+        {
+            FKRelationPresent = false;
+        }
+
         public FetchKeyBoundary(TableInfo srcTable, List<string> keyColNames, TableInfo dstTable = null)
             : base(srcTable, keyColNames, dstTable)
         {
@@ -315,7 +331,7 @@ SELECT  {1}
     {
         public static FetchKeyBoundary CreateFetchKeyComplete(this TableInfo srcTable, string keyColName = null)
         {
-            return CreateFetchKeyComplete(srcTable, (keyColName == null) ? null : keyColName.Split(',').ToList());
+            return CreateFetchKeyComplete(srcTable, keyColName?.Split(',').ToList());
         }
 
         public static FetchKeyBoundary CreateFetchKeyComplete(this TableInfo srcTable, List<string> keyColNames)
@@ -338,65 +354,65 @@ SELECT  {1}
         }
 
 
-        public static FetchKeyBoundary CreateFetchKeyBoundary(this TableInfo srcTable, string keyColName, string whereClause)
-        {
-            //TODO: Add multi-column key support
+        //public static FetchKeyBoundary CreateFetchKeyBoundary(this TableInfo srcTable, string keyColName, string whereClause)
+        //{
+        //    //TODO: Add multi-column key support
 
-            FetchKeyBoundary newFKB = null;
+        //    FetchKeyBoundary newFKB = null;
 
-            string qryGetKeyLimits = @"
-                SELECT MIN(SRC.{0}) AS MinKey, 
-                       MAX(SRC.{0}) AS MaxKey
-                    FROM {1} SRC
-                    {2}";
+        //    string qryGetKeyLimits = @"
+        //        SELECT MIN(SRC.{0}) AS MinKey, 
+        //               MAX(SRC.{0}) AS MaxKey
+        //            FROM {1} SRC
+        //            {2}";
 
-            using (SqlConnection srcConn = BackfillCtl.OpenDB(srcTable.InstanceName, srcTable.DbName))
-            {
-                string strKeyQuery = string.Format(qryGetKeyLimits,
-                    srcTable[keyColName].NameQuoted,
-                    srcTable.FullTableName,
-                    (string.IsNullOrEmpty(whereClause)) ? "" : ("WHERE " + whereClause));
-                using (SqlCommand cmdKeys = new SqlCommand(strKeyQuery, srcConn))
-                {
-                    cmdKeys.CommandTimeout = 300; // timeout in seconds
-                    DataTable dtKeys = new DataTable();
-                    using (SqlDataReader rdrKeys = cmdKeys.ExecuteReader())
-                    {
-                        dtKeys.Load(rdrKeys);
-                    }
+        //    using (SqlConnection srcConn = BackfillCtl.OpenDB(srcTable.InstanceName, srcTable.DbName))
+        //    {
+        //        string strKeyQuery = string.Format(qryGetKeyLimits,
+        //            srcTable[keyColName].NameQuoted,
+        //            srcTable.FullTableName,
+        //            (string.IsNullOrEmpty(whereClause)) ? "" : ("WHERE " + whereClause));
+        //        using (SqlCommand cmdKeys = new SqlCommand(strKeyQuery, srcConn))
+        //        {
+        //            cmdKeys.CommandTimeout = 300; // timeout in seconds
+        //            DataTable dtKeys = new DataTable();
+        //            using (SqlDataReader rdrKeys = cmdKeys.ExecuteReader())
+        //            {
+        //                dtKeys.Load(rdrKeys);
+        //            }
 
-                    if (dtKeys.Rows.Count > 0)
-                    {
-                        newFKB = new FetchKeyBoundary(srcTable, new List<string>() { keyColName });
-                        if (dtKeys.Rows[0]["MinKey"].GetType().Name != "DBNull") newFKB.StartKeyList.Add(dtKeys.Rows[0]["MinKey"]);
-                        if (dtKeys.Rows[0]["MaxKey"].GetType().Name != "DBNull") newFKB.EndKeyList.Add(dtKeys.Rows[0]["MaxKey"]);
-                    }
-                }
-                BackfillCtl.CloseDb(srcConn); // Close the DB connection
-            }
-            return newFKB;
-        }
+        //            if (dtKeys.Rows.Count > 0)
+        //            {
+        //                newFKB = new FetchKeyBoundary(srcTable, new List<string>() { keyColName });
+        //                if (dtKeys.Rows[0]["MinKey"].GetType().Name != "DBNull") newFKB.StartKeyList.Add(dtKeys.Rows[0]["MinKey"]);
+        //                if (dtKeys.Rows[0]["MaxKey"].GetType().Name != "DBNull") newFKB.EndKeyList.Add(dtKeys.Rows[0]["MaxKey"]);
+        //            }
+        //        }
+        //        BackfillCtl.CloseDb(srcConn); // Close the DB connection
+        //    }
+        //    return newFKB;
+        //}
 
-        /// <summary>
-        /// Create a single column boundary set
-        /// </summary>
-        /// <param name="srcTable">Reference to TableInfo object of the source table</param>
-        /// <param name="keyColName">Key column name</param>
-        /// <param name="minKey">Start value</param>
-        /// <param name="maxKey">Final value</param>
-        /// <returns></returns>
-        public static FetchKeyBoundary CreateFetchKeyBoundary(this TableInfo srcTable, string keyColName, object minKey, object maxKey)
-        {
-            //TODO: Add multi-column key support
+        ///// <summary>
+        ///// Create a single column boundary set
+        ///// </summary>
+        ///// <param name="srcTable">Reference to TableInfo object of the source table</param>
+        ///// <param name="keyColName">Key column name</param>
+        ///// <param name="minKey">Start value</param>
+        ///// <param name="maxKey">Final value</param>
+        ///// <returns></returns>
+        //public static FetchKeyBoundary CreateFetchKeyBoundary(this TableInfo srcTable, string keyColName, object minKey, object maxKey)
+        //{
+        //    //TODO: Add multi-column key support
 
-            FetchKeyBoundary newFKB = null;
+        //    FetchKeyBoundary newFKB = null;
 
-            newFKB = new FetchKeyBoundary(srcTable, new List<string>(){ keyColName });
-            if ((minKey != null) && (minKey.GetType().Name != "DBNull")) newFKB.StartKeyList.Add(minKey);
-            if ((maxKey != null) && (maxKey.GetType().Name != "DBNull")) newFKB.StartKeyList.Add(maxKey);
+        //    newFKB = new FetchKeyBoundary(srcTable, new List<string>(){ keyColName });
+        //    if ((minKey != null) && (minKey.GetType().Name != "DBNull")) newFKB.StartKeyList.Add(minKey);
+        //    if ((maxKey != null) && (maxKey.GetType().Name != "DBNull")) newFKB.StartKeyList.Add(maxKey);
 
-            return newFKB;
-        }
+        //    return newFKB;
+        //}
 
     }
 

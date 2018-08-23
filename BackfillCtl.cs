@@ -123,11 +123,11 @@ namespace DBBackfill
         }
 
 
-        public void BackfillData(FetchKeyBoundary fkb, List<string> copyColNames,
+        public void BackfillData(FetchKeyBoundary fkb, 
                                  int batchSize,
                                  List<string> srcKeyNames = null, List<string> dstKeyNames = null)
         {
-            BackfillContext bfCtx = new BackfillContext(this, fkb.FKeySrcTable, fkb.FKeyDstTable, copyColNames);
+            BackfillContext bfCtx = new BackfillContext(this, fkb.FKeySrcTable, fkb.FKeyDstTable, null);
 
             bfCtx.FillType = fkb.FillType;
             bfCtx.BackfillData(fkb, batchSize, fkb.FKeyColNames, dstKeyNames);

@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Data;
 using System.Data.SqlClient;
+using System.Linq;
 
 
 namespace DBBackfill
@@ -18,9 +19,11 @@ namespace DBBackfill
         public TableInfo FKeySrcTable { get; protected set; } // Reference to information on the source table 
         public List<string> FKeyColNames { get; protected set; }
 
+        public List<TableColInfo> FKeyDataCols = new List<TableColInfo>();  // Collection of data columns to be fetched and moved
+
         //  Destination Table Info
         //
-        public TableInfo FKeyDstTable { get; protected set; }
+        //public TableInfo FKeyDstTable { get; protected set; }
 
         //  Boolean properties
         //
@@ -35,15 +38,17 @@ namespace DBBackfill
 
         //  Backfill 
         private BackfillType _fillType;
+
         public BackfillType FillType
         {
             get => _fillType;
             set => _fillType = value;
         }
+
         public string FillTypeName
         {
-            get => _fillType.ToString();  // Get the BackfillType name
-            set => _fillType = (BackfillType) Enum.Parse(typeof(BackfillType),value);
+            get => _fillType.ToString(); // Get the BackfillType name
+            set => _fillType = (BackfillType) Enum.Parse(typeof(BackfillType), value);
         }
 
         //  Restart positioning information 
@@ -105,20 +110,39 @@ namespace DBBackfill
         //
         public FetchKeyBase(TableInfo srcTable, List<string> keyColNames, TableInfo dstTable = null)
         {
+            //  Set up the source table information
+            //
             FKeySrcTable = srcTable;
             FKeyColNames = keyColNames;
-
-            FKeyDstTable = dstTable;
+            if (keyColNames == null)
+            {
+                FKeyColNames = srcTable.Where(kc => kc.KeyOrdinal > 0).OrderBy(kc => kc.KeyOrdinal).Select(kc => kc.Name).ToList();
+            }
 
             StartKeyList = new List<object>(); // Initialize the start/end key lists
             EndKeyList = new List<object>();
 
-            FillType = BackfillType.BulkInsert;  // Default to bulk insert
+            //  Setup any destination table information
+            //
+            FKeyDstTable = dstTable;
 
-            RestartPartition = 1;  // Default to the irst partition
+            FillType = BackfillType.BulkInsert; // Default to bulk insert
+
             FlgRestart = false; // Assume no restart at this point
             RestartKeyList = new List<object>(); // Clear out the restart keys list
+
+            //  Check for any partitioning performance problems
+            //
+            RestartPartition = 1; // Default to the irst partition
+            FlgSelectByPartition = false; // Assume not partitioned
+            if ((srcTable.IsPartitioned) && (srcTable.PtCol.ID == srcTable[keyColNames[0]].ID))
+            {
+                FlgSelectByPartition = true;
+            }
         }
+
+        public FetchKeyBase(TableInfo srcTable, string keyColNames, TableInfo dstTable = null)
+            : this(srcTable, keyColNames?.Split(',').ToList(), dstTable) { }
 
     }
 
