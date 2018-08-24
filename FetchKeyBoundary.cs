@@ -12,12 +12,6 @@ namespace DBBackfill
     /// </summary>
     public class FetchKeyBoundary : FetchKeyBase
     {
-        //  Extra properties needed for this derived class
-        //
-        public bool FKRelationPresent { get; protected set; } // If true, then a foreign key relation is used on each data row fetch
-        public TableInfo FKTable { get; protected set; }  // If not null, then a reference to a foreign/parent table
-        public TableColInfo FKSrcTableCol { get; protected set; }  // If FKSrcTable not null, then reference to source table column
-        public TableColInfo FKTableCol { get; protected set; } // If FKSrcTable not null, then reference to foreign table column
 
         //  SQL Query to find the key column jvalues on the last row of the next fetch group (by key order)
         //
@@ -42,43 +36,13 @@ SELECT  {1}
         private string strFetchRows = @"
 SELECT  {1}
     FROM {0} SRC
+{2}
 ";
 
         private string strFetchRowsFK = @"
-SELECT  {1}
-    FROM {0} SRC
-        INNER JOIN {2} FK
-            ON (SRC.{3} = FK.{4})
+        INNER JOIN {0} SRC2
+            ON (SRC.{1} = SRC2.{2})
 ";
-
-        //
-        //
-        //  Methods
-        //
-        public void SetRelatedTable(TableInfo fkTable, TableColInfo fkTableCol, TableColInfo fkSrcTableCol)
-        {
-            if ((fkTable != null) && (fkTableCol != null) && (fkSrcTableCol != null))
-            {
-                FKTable = fkTable; // Save reference o foreign table
-                FKTableCol = fkTableCol; // Save column referene in foreign table
-                FKSrcTableCol = fkSrcTableCol; // Save reference to column in source table
-                FKRelationPresent = true;
-            }
-            else
-            {
-                throw new ApplicationException("Improper call to SetRelatedTable");
-            }
-        }
-
-
-        public void AddFetchCol(TableColInfo newCol, string loadExpression)
-        {
-            if (!FKeyDataCols.Exists(dc => (dc.Name == newCol.Name)))
-            {
-                newCol.LoadExpression = loadExpression;  // Add the load expression needed to load data not in the src table
-                FKeyDataCols.Add(newCol);
-            }
-        }
 
 
 
@@ -168,9 +132,10 @@ SELECT  {1}
                     string pName = string.Format("@ek{0}", idx + 1);
                     if (!srcCmd.Parameters.Contains(pName))
                     {
-                        SqlDbType dbType = (SqlDbType)Enum.Parse(typeof(SqlDbType), srcTable[keyColNames[idx]].Datatype, true);
+                        SqlDbType dbType = (SqlDbType) Enum.Parse(typeof(SqlDbType), srcTable[keyColNames[idx]].Datatype, true);
                         srcCmd.Parameters.Add(pName, dbType);
                     }
+
                     srcCmd.Parameters[pName].Value = EndKeyList[idx];
                 }
 
@@ -197,14 +162,20 @@ SELECT  {1}
             sbFetch.AppendFormat(strFetchRows,
                 srcTable.FullTableName,
                 string.Join(
-                    ", \n        ", 
+                    ", \n        ",
                     srcTable.Columns
                             .Where(col => !col.Value.Ignore)
                             .OrderBy(col => col.Value.ID)
-                            .Select(col => string.IsNullOrEmpty(col.Value.LoadExpression) 
+                            .Select(col => string.IsNullOrEmpty(col.Value.LoadExpression)
                                         ? String.Concat("SRC.", (object) col.Value.NameQuoted)
                                         : String.Concat(col.Value.LoadExpression, " AS ", col.Value.NameQuoted))
-                            .ToArray())
+                            .ToArray()),
+                (RLRelationPresent)
+                    ? string.Format(strFetchRowsFK,
+                        RLTable.FullTableName,
+                        RLSrcTableCol.NameQuoted,
+                        RLTableCol.NameQuoted)
+                    : ""
             );
 
             //  Construct the end key limit boolean expression for the main fetch
@@ -235,9 +206,10 @@ SELECT  {1}
                     string pName = string.Format("@sk{0}", idx + 1);
                     if (!srcCmd.Parameters.Contains(pName))
                     {
-                        SqlDbType dbType = (SqlDbType)Enum.Parse(typeof(SqlDbType), srcTable[keyColNames[idx]].Datatype, true);
+                        SqlDbType dbType = (SqlDbType) Enum.Parse(typeof(SqlDbType), srcTable[keyColNames[idx]].Datatype, true);
                         srcCmd.Parameters.Add(pName, dbType);
                     }
+
                     srcCmd.Parameters[pName].Value = curKeys[idx];
                 }
 
@@ -249,7 +221,7 @@ SELECT  {1}
 
             BuildKeyCompare(sbFetch, srcTable, keyColNames, "lk", keyColNames.Count, false);
 
-            FetchBatchSql = sbFetch.ToString();  // Save the row fetch query
+            FetchBatchSql = sbFetch.ToString(); // Save the row fetch query
 
         }
 
@@ -260,8 +232,6 @@ SELECT  {1}
         {
             return null;
         }
-
-
 
 
         //  Build the logical expression use in the WHERE clause when comparing the key fields of rin/out of range
@@ -307,16 +277,16 @@ SELECT  {1}
 
         //  Constructors
         //
-        public FetchKeyBoundary(TableInfo srcTable, string keyColNames, TableInfo dstTable = null)
-            : base(srcTable, keyColNames, dstTable)
+        public FetchKeyBoundary(TableInfo srcTable, string keyColNames)
+            : base(srcTable, keyColNames)
         {
-            FKRelationPresent = false;
+            RLRelationPresent = false;
         }
 
-        public FetchKeyBoundary(TableInfo srcTable, List<string> keyColNames, TableInfo dstTable = null)
-            : base(srcTable, keyColNames, dstTable)
+        public FetchKeyBoundary(TableInfo srcTable, List<string> keyColNames)
+            : base(srcTable, keyColNames)
         {
-            FKRelationPresent = false;
+            RLRelationPresent = false;
         }
     }
 

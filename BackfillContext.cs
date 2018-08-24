@@ -128,7 +128,7 @@ namespace DBBackfill
                 }
             }
             if (errCnt > 0)
-                throw new ApplicationException("Some specified columns do not exist");
+                throw new ApplicationException("Some specified Copy columns do not exist");
 
             CopyColNames = copyColNames;
 
@@ -136,6 +136,10 @@ namespace DBBackfill
             //
             SrcKeyNames = SrcTable.Where(cl => (cl.KeyOrdinal > 0)).OrderBy<TableColInfo, int>(cl => cl.KeyOrdinal).Select(cl => cl.Name).ToList();
             DstKeyNames = DstTable.Where(cl => (cl.KeyOrdinal > 0)).OrderBy(cl => cl.KeyOrdinal).Select(cl => cl.Name).ToList();
+
+            //  Setup the initial copy/backfill options
+            //
+            FillType = BackfillType.BulkInsert; // Default to bulk insert
         }
 
 

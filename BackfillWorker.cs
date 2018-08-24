@@ -235,16 +235,7 @@ namespace DBBackfill
                                 catch (Exception ex)
                                 {
                                     trnMerge.Rollback();
-                                    Exception ex2 = ex;
-                                    BkfCtrl.CapturedException = ex; // Save the exception information 
-
-                                    for (int exNest = 0; ex2 != null; ++exNest)
-                                    {
-                                        BkfCtrl.DebugOutput(string.Format("Exception: [{0}] {1}", exNest, ex2.Message));
-                                        BkfCtrl.DebugOutput(string.Format("Exception: [{0}] {1}", exNest, ex2.StackTrace));
-                                        ex2 = ex2.InnerException;
-                                    }
-                                    throw new ApplicationException("BackfillWorker Exception: ", ex);
+                                    BkfCtrl.DebugOutputException(ex);
                                 }
                             }
                         }

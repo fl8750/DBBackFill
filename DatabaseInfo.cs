@@ -140,9 +140,9 @@ namespace DBBackfill
                     }
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                throw;
+                throw ex;
             }
 
         }

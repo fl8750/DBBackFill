@@ -19,12 +19,16 @@ namespace DBBackfill
         public TableInfo FKeySrcTable { get; protected set; } // Reference to information on the source table 
         public List<string> FKeyColNames { get; protected set; }
 
-        public List<TableColInfo> FKeyDataCols = new List<TableColInfo>();  // Collection of data columns to be fetched and moved
+        public List<TableColInfo> FKeyCopyCols = new List<TableColInfo>();  // Collection of data columns to be fetched and moved
 
-        //  Destination Table Info
+        //  Extra properties needed for relational table fetch
         //
-        //public TableInfo FKeyDstTable { get; protected set; }
+        public bool RLRelationPresent { get; protected set; } // If true, then a foreign key relation is used on each data row fetch
+        public TableInfo RLTable { get; protected set; }  // If not null, then a reference to a foreign/parent table
+        public TableColInfo RLSrcTableCol { get; protected set; }  // If FKSrcTable not null, then reference to source table column
+        public TableColInfo RLTableCol { get; protected set; } // If FKSrcTable not null, then reference to foreign table column
 
+        
         //  Boolean properties
         //
         public bool FlgOrderBy = true;
@@ -105,10 +109,41 @@ namespace DBBackfill
             throw new ApplicationException("Not Implemented!");
         }
 
+
+        //
+        //
+        //  Relational data fetch methods
+        //
+        public void SetRelatedTable(TableInfo fkTable, string fkTableColName, string fkSrcTableColName)
+        {
+            if ((fkTable != null) && !string.IsNullOrEmpty(fkTableColName) && !string.IsNullOrEmpty(fkSrcTableColName))
+            {
+                RLTable = fkTable; // Save reference o foreign table
+                RLTableCol = RLTable[fkTableColName]; // Save column reference in foreign table
+                RLSrcTableCol = FKeySrcTable[fkSrcTableColName]; ; // Save reference to column in source table
+                RLRelationPresent = true;
+            }
+            else
+            {
+                throw new ApplicationException("Improper call to SetRelatedTable");
+            }
+        }
+
+
+        public void AddFetchCol(TableColInfo newCol, string loadExpression)
+        {
+            if (!FKeyCopyCols.Exists(dc => (dc.Name == newCol.Name)))
+            {
+                newCol.LoadExpression = loadExpression;  // Add the load expression needed to load data not in the src table
+                FKeyCopyCols.Add(newCol);
+            }
+        }
+
+
         //
         //  Constructors
         //
-        public FetchKeyBase(TableInfo srcTable, List<string> keyColNames, TableInfo dstTable = null)
+        public FetchKeyBase(TableInfo srcTable, List<string> keyColNames)
         {
             //  Set up the source table information
             //
@@ -121,12 +156,6 @@ namespace DBBackfill
 
             StartKeyList = new List<object>(); // Initialize the start/end key lists
             EndKeyList = new List<object>();
-
-            //  Setup any destination table information
-            //
-            FKeyDstTable = dstTable;
-
-            FillType = BackfillType.BulkInsert; // Default to bulk insert
 
             FlgRestart = false; // Assume no restart at this point
             RestartKeyList = new List<object>(); // Clear out the restart keys list
@@ -141,8 +170,8 @@ namespace DBBackfill
             }
         }
 
-        public FetchKeyBase(TableInfo srcTable, string keyColNames, TableInfo dstTable = null)
-            : this(srcTable, keyColNames?.Split(',').ToList(), dstTable) { }
+        public FetchKeyBase(TableInfo srcTable, string keyColNames)
+            : this(srcTable, keyColNames?.Split(',').ToList()) { }
 
     }
 
