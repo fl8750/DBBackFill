@@ -205,14 +205,14 @@ namespace DBBackfill
                                     curMergeCount = 0;
                                     if ((FillType == BackfillType.BulkInsert) /* || (FillType == BackfillType.BulkInsertMerge) */ )
                                     {
-                                        BulkInsertIntoTable(srcDt, trnMerge, dstConn, DstTable.FullTableName, fkb.FKeyCopyCols.Select(cc => cc.Name).ToList());
+                                        BulkInsertIntoTable(srcDt, trnMerge, dstConn, DstTable.FullTableName, fkb.FKeyCopyCols);
                                         //BulkInsertIntoTable(srcDt, trnMerge, dstConn, DstTable.FullTableName, CopyColNames);
                                         curMergeCount = srcDt.Rows.Count;
                                     }
 
                                     if ((FillType == BackfillType.Merge) /* || (FillType == BackfillType.BulkInsertMerge) */ )
                                     {
-                                        BulkInsertIntoTable(srcDt, trnMerge, dstConn, DstTempFullTableName, CopyColNames);
+                                        BulkInsertIntoTable(srcDt, trnMerge, dstConn, DstTempFullTableName, fkb.FKeyCopyCols);
                                         using (SqlCommand cmdDstMerge = new SqlCommand(QryDataMerge, dstConn, trnMerge)) //  Destination datbase connection
                                         {
                                             cmdDstMerge.CommandTimeout = BkfCtrl.CommandTimeout; // Set the set timeout value
@@ -317,7 +317,7 @@ namespace DBBackfill
         //
         //  Bulk Import a DataTable into a destination table
         //
-        private int BulkInsertIntoTable(DataTable srcDt, SqlTransaction trnActive, SqlConnection dstConn, string destTableName, List<string> copyColNames)
+        private int BulkInsertIntoTable(DataTable srcDt, SqlTransaction trnActive, SqlConnection dstConn, string destTableName, List<TableColInfo> copyCols)
         {
             SqlBulkCopyOptions bcpyOpts = SqlBulkCopyOptions.KeepNulls | SqlBulkCopyOptions.CheckConstraints | SqlBulkCopyOptions.FireTriggers ;
             if (DstTable.HasIdentity) bcpyOpts |= SqlBulkCopyOptions.KeepIdentity;
@@ -331,9 +331,9 @@ namespace DBBackfill
 
                     // Setup explicit column mapping to avoid any problem from the default mapping behavior
                     //
-                    foreach (string ccn in copyColNames)
+                    foreach (TableColInfo ccn in copyCols)
                     {
-                        TableColInfo tci = DstTable[ccn];
+                        TableColInfo tci = DstTable[ccn.Name];
                         if (tci.IsIncluded)
                         {
                             SqlBulkCopyColumnMapping newCMap = new SqlBulkCopyColumnMapping(tci.Name, tci.Name);
