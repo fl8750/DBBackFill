@@ -40,7 +40,7 @@ SELECT  {1}
 ";
 
         private string strFetchRowsFK = @"
-        INNER JOIN {0} SRC2
+        {3} JOIN {0} SRC2
             ON (SRC.{1} = SRC2.{2})
 ";
 
@@ -114,7 +114,7 @@ SELECT  {1}
             {
                 sbWhere.AppendFormat("      {0} \n                    ", (whereCnt++ == 0) ? "WHERE" : "AND"); // Add the proper keyword
 
-                BuildKeyCompare(sbWhere, srcTable, keyColNames, "sk", skCnt, true, isFirstFetch);
+                BuildKeyCompare(sbWhere, srcTable, "", keyColNames, "sk", skCnt, true, isFirstFetch);
             }
 
             //  Construct the end key limit boolean expression
@@ -123,7 +123,7 @@ SELECT  {1}
             {
                 sbWhere.AppendFormat("      {0} \n                    ", (whereCnt++ == 0) ? "WHERE" : "AND"); // Add the proper keyword
 
-                BuildKeyCompare(sbWhere, srcTable, keyColNames, "ek", ekCnt, false);
+                BuildKeyCompare(sbWhere, srcTable, "", keyColNames, "ek", ekCnt, false);
 
                 //  Create the SqlParameters for this command
                 //
@@ -163,18 +163,23 @@ SELECT  {1}
                 srcTable.FullTableName,
                 string.Join(
                     ", \n        ",
-                    srcTable.Columns
-                            .Where(col => !col.Value.Ignore)
-                            .OrderBy(col => col.Value.ID)
-                            .Select(col => string.IsNullOrEmpty(col.Value.LoadExpression)
-                                        ? String.Concat("SRC.", (object) col.Value.NameQuoted)
-                                        : String.Concat(col.Value.LoadExpression, " AS ", col.Value.NameQuoted))
+                      //srcTable.Columns
+                      //        .Where(col => !col.Value.Ignore)
+                      //        .OrderBy(col => col.Value.ID)
+                      //        .Select(col => string.IsNullOrEmpty(col.Value.LoadExpression)
+                      //                    ? String.Concat("SRC.", (object)col.Value.NameQuoted)
+                      //                    : String.Concat(col.Value.LoadExpression, " AS ", col.Value.NameQuoted))
+                      FKeyCopyCols
+                              .Select(col => string.IsNullOrEmpty(col.LoadExpression)
+                                          ? String.Concat("SRC.", (object)col.NameQuoted)
+                                          : String.Concat(col.LoadExpression, " AS ", col.NameQuoted))
                             .ToArray()),
-                (RLRelationPresent)
+                (RLConfigured != RLType.NoRelationSet)
                     ? string.Format(strFetchRowsFK,
                         RLTable.FullTableName,
                         RLSrcTableCol.NameQuoted,
-                        RLTableCol.NameQuoted)
+                        RLTableCol.NameQuoted,
+                        (RLConfigured== RLType.InnerJoin) ? "INNER" : "LEFT OUTER")
                     : ""
             );
 
@@ -196,7 +201,7 @@ SELECT  {1}
             {
                 sbFetch.AppendFormat("      {0} \n", (whereCnt++ == 0) ? "WHERE" : "AND"); // Add the proper keyword
 
-                BuildKeyCompare(sbFetch, srcTable, keyColNames, "sk", skCnt, true, isFirstFetch);
+                BuildKeyCompare(sbFetch, srcTable, "SRC", keyColNames, "sk", skCnt, true, isFirstFetch);
 
 
                 //  Create the SqlParameters needed for this command
@@ -219,7 +224,7 @@ SELECT  {1}
             //
             sbFetch.AppendFormat("      {0} \n", (whereCnt++ == 0) ? "WHERE" : "AND"); // Add the proper keyword
 
-            BuildKeyCompare(sbFetch, srcTable, keyColNames, "lk", keyColNames.Count, false);
+            BuildKeyCompare(sbFetch, srcTable, "SRC", keyColNames, "lk", keyColNames.Count, false);
 
             FetchBatchSql = sbFetch.ToString(); // Save the row fetch query
 
@@ -236,8 +241,9 @@ SELECT  {1}
 
         //  Build the logical expression use in the WHERE clause when comparing the key fields of rin/out of range
         //
-        private void BuildKeyCompare(StringBuilder sbOut, TableInfo srcTable, List<string> keyColNames, string keyPrefix, int keyValueCount, 
-                                       bool isLowerLimit, bool isFirstFetch = false)
+        private void BuildKeyCompare(StringBuilder sbOut, TableInfo srcTable, string srcTableAlias,
+                                        List<string> keyColNames, string keyPrefix, int keyValueCount, 
+                                        bool isLowerLimit, bool isFirstFetch = false)
         {
             // Construct the logical clauses to mark the beginning of the fetch range
             sbOut.Append("        ("); 
@@ -246,13 +252,16 @@ SELECT  {1}
                 if (keyValueCount > 1) sbOut.Append("(");
                 for (int iidx = 0; iidx < oidx; ++iidx)
                 {
-                    sbOut.AppendFormat("({0} {1} @{3}{2})",
+                    sbOut.AppendFormat("({0}{1} {2} @{4}{3})",
+                        string.IsNullOrEmpty(srcTableAlias)
+                            ? ""
+                            : string.Concat(srcTableAlias, "."),
                         srcTable[keyColNames[iidx]].NameQuoted,
                         ((oidx - iidx) > 1)
                             ? "="
                             : (isLowerLimit)
-                                ? ((iidx + 1) == keyValueCount) 
-                                    ? ((isFirstFetch) ? ">=" : ">") 
+                                ? ((iidx + 1) == keyValueCount)
+                                    ? ((isFirstFetch) ? ">=" : ">")
                                     : ">"
                                 : ((iidx + 1) == keyValueCount)
                                     ? "<="
@@ -261,6 +270,7 @@ SELECT  {1}
                         keyPrefix);
                     if ((oidx - iidx) > 1) sbOut.Append(" AND ");
                 }
+
                 if (keyValueCount > 1) sbOut.Append(")");
 
                 if (oidx > 1)
@@ -280,13 +290,11 @@ SELECT  {1}
         public FetchKeyBoundary(TableInfo srcTable, string keyColNames)
             : base(srcTable, keyColNames)
         {
-            RLRelationPresent = false;
         }
 
         public FetchKeyBoundary(TableInfo srcTable, List<string> keyColNames)
             : base(srcTable, keyColNames)
         {
-            RLRelationPresent = false;
         }
     }
 

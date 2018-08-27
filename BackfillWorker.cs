@@ -205,7 +205,8 @@ namespace DBBackfill
                                     curMergeCount = 0;
                                     if ((FillType == BackfillType.BulkInsert) /* || (FillType == BackfillType.BulkInsertMerge) */ )
                                     {
-                                        BulkInsertIntoTable(srcDt, trnMerge, dstConn, DstTable.FullTableName, CopyColNames);
+                                        BulkInsertIntoTable(srcDt, trnMerge, dstConn, DstTable.FullTableName, fkb.FKeyCopyCols.Select(cc => cc.Name).ToList());
+                                        //BulkInsertIntoTable(srcDt, trnMerge, dstConn, DstTable.FullTableName, CopyColNames);
                                         curMergeCount = srcDt.Rows.Count;
                                     }
 

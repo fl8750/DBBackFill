@@ -22,7 +22,14 @@ namespace DBBackfill
 
         //  Extra properties needed for relational table fetch
         //
-        public bool RLRelationPresent { get; protected set; } // If true, then a foreign key relation is used on each data row fetch
+        public enum RLType
+        {
+            NoRelationSet = 0,
+            InnerJoin,
+            OuterJoin
+        }
+        public RLType RLConfigured { get; protected set; } 
+        //public bool RLRelationPresent { get; protected set; } // If true, then a foreign key relation is used on each data row fetch
         public TableInfo RLTable { get; protected set; }  // If not null, then a reference to a foreign/parent table
         public TableColInfo RLSrcTableCol { get; protected set; }  // If FKSrcTable not null, then reference to source table column
         public TableColInfo RLTableCol { get; protected set; } // If FKSrcTable not null, then reference to foreign table column
@@ -113,14 +120,19 @@ namespace DBBackfill
         //
         //  Relational data fetch methods
         //
-        public void SetRelatedTable(TableInfo fkTable, string fkTableColName, string fkSrcTableColName)
+        public void SetRelatedTable(TableInfo fkTable, string fkTableColName, string fkSrcTableColName, string rlTypeName = "InnerJoin")
+        {
+            SetRelatedTable(fkTable, fkTableColName, fkSrcTableColName, (RLType)Enum.Parse(typeof(RLType), rlTypeName, true));
+        }
+
+        public void SetRelatedTable(TableInfo fkTable, string fkTableColName, string fkSrcTableColName, RLType rlType = RLType.InnerJoin)
         {
             if ((fkTable != null) && !string.IsNullOrEmpty(fkTableColName) && !string.IsNullOrEmpty(fkSrcTableColName))
             {
                 RLTable = fkTable; // Save reference o foreign table
                 RLTableCol = RLTable[fkTableColName]; // Save column reference in foreign table
                 RLSrcTableCol = FKeySrcTable[fkSrcTableColName]; ; // Save reference to column in source table
-                RLRelationPresent = true;
+                RLConfigured = rlType;  // Save the relationship type
             }
             else
             {
@@ -156,8 +168,20 @@ namespace DBBackfill
             StartKeyList = new List<object>(); // Initialize the start/end key lists
             EndKeyList = new List<object>();
 
+            FKeyCopyCols =
+                FKeySrcTable.Columns
+                            .Where(col => !col.Value.Ignore)
+                            .OrderBy(col => col.Value.ID)
+                            .Select(sc => sc.Value).ToList();
+                  //      .Select(col => string.IsNullOrEmpty(col.Value.LoadExpression)
+                //                    ? String.Concat("SRC.", (object)col.Value.NameQuoted)
+                //                    : String.Concat(col.Value.LoadExpression, " AS ", col.Value.NameQuoted))
+
+
             FlgRestart = false; // Assume no restart at this point
             RestartKeyList = new List<object>(); // Clear out the restart keys list
+
+            RLConfigured = RLType.NoRelationSet;  // No relationship set
 
             //  Check for any partitioning performance problems
             //
