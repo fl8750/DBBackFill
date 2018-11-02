@@ -169,11 +169,15 @@ SELECT  {1}
                       //        .Select(col => string.IsNullOrEmpty(col.Value.LoadExpression)
                       //                    ? String.Concat("SRC.", (object)col.Value.NameQuoted)
                       //                    : String.Concat(col.Value.LoadExpression, " AS ", col.Value.NameQuoted))
-                      FKeyCopyCols
-                              .Select(col => string.IsNullOrEmpty(col.LoadExpression)
-                                          ? String.Concat("SRC.", (object)col.NameQuoted)
-                                          : String.Concat(col.LoadExpression, " AS ", col.NameQuoted))
-                            .ToArray()),
+                      //FKeyCopyCols
+                      //        .Select(col => string.IsNullOrEmpty(col.LoadExpression)
+                      //                    ? String.Concat("SRC.", (object)col.Name0Quoted)
+                      //                    : String.Concat(col.LoadExpression, " AS ", col.NameQuoted))
+                      //                .ToArray()),
+                    FKeyCopyCols.Select(col => string.Concat(col.LoadExpression.Replace("[__X__]", String.Concat("SRC.", (object)col.NameQuoted)), 
+                                            " AS ", 
+                                            col.NameQuoted))
+                                .ToArray()),
                 (RLConfigured != RLType.NoRelationSet)
                     ? string.Format(strFetchRowsFK,
                         RLTable.FullTableName,
@@ -182,6 +186,8 @@ SELECT  {1}
                         (RLConfigured== RLType.InnerJoin) ? "INNER" : "LEFT OUTER")
                     : ""
             );
+
+
 
             //  Construct the end key limit boolean expression for the main fetch
             //

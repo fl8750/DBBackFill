@@ -151,6 +151,18 @@ namespace DBBackfill
         }
 
 
+
+        public void ModifyFetchCol(string colName, string loadExpression)
+        {
+            if (FKeyCopyCols.Exists(dc => (dc.Name == colName)))
+            {
+                FKeyCopyCols.Find(dc => dc.Name == colName).LoadExpression = loadExpression;  // Add the load expression needed to load data not in the src table
+            }
+            else
+                throw new ApplicationException($"Cannot find existing source column:'{colName}'");
+        }
+
+
         //
         //  Constructors
         //
@@ -173,7 +185,7 @@ namespace DBBackfill
                             .Where(col => !col.Value.Ignore)
                             .OrderBy(col => col.Value.ID)
                             .Select(sc => sc.Value).ToList();
-                  //      .Select(col => string.IsNullOrEmpty(col.Value.LoadExpression)
+                //      .Select(col => string.IsNullOrEmpty(col.Value.LoadExpression)
                 //                    ? String.Concat("SRC.", (object)col.Value.NameQuoted)
                 //                    : String.Concat(col.Value.LoadExpression, " AS ", col.Value.NameQuoted))
 

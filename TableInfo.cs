@@ -306,7 +306,7 @@ namespace DBBackfill
                                 KeyDescending = ((int)dr["is_descending_key"] != 0),
 
                                 Ignore = false,
-                                LoadExpression = ""  // No custom value expression
+                                LoadExpression = "[__X__]"  // No custom value expression
                             };
 
                         curTbl.AddColumn(newCol); // Add to the column list 
