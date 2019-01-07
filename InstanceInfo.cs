@@ -70,7 +70,7 @@ namespace DBBackfill
             InstanceInfo newInst = null;
             try
             {
-                using (SqlConnection dbConn = BackfillCtl.OpenDB(instanceName, "master"))
+                using (SqlConnection dbConn = BackfillCtl.OpenDB(instanceName, 60, "master"))
                 {
                     newInst = new InstanceInfo(dbConn);
                     _instances.Add(instanceName, newInst);

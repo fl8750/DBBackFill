@@ -14,6 +14,7 @@ namespace DBBackfill
         //
         public void BackfillData(FetchKeyBoundary fkb,
                                  int batchSize,
+                                 int connectTimeout, 
                                  List<string> srcKeyNames,
                                  List<string> dstKeyNames = null
                                  )
@@ -30,8 +31,8 @@ namespace DBBackfill
 
             //  Prepare the SQL connections to the source and destination databases
             //
-            SqlConnection srcConn = BackfillCtl.OpenDB(SrcTable.InstanceName, SrcTable.DbName);
-            SqlConnection dstConn = BackfillCtl.OpenDB(DstTable.InstanceName, DstTable.DbName);
+            SqlConnection srcConn = BackfillCtl.OpenDB(SrcTable.InstanceName, connectTimeout, SrcTable.DbName);
+            SqlConnection dstConn = BackfillCtl.OpenDB(DstTable.InstanceName, connectTimeout, DstTable.DbName);
 
             isSameInstance = (string.Compare(srcConn.DataSource, dstConn.DataSource, StringComparison.InvariantCultureIgnoreCase) == 0);
 
@@ -63,11 +64,16 @@ namespace DBBackfill
                        ));
 
                 //  Show the rowcount
+                BkfCtrl.DebugOutput(string.Format(" Fill Type: {0}",
+                    FillType.ToString()
+                ));
+
+                //  Show the rowcount
                 BkfCtrl.DebugOutput(string.Format("      Rows: {0:#,##0}  BatchChunkSize: {1:#,##0}  Partitions(#/>0): {2:#,##0}/{3:#,##0}",
-                        SrcTable.RowCount,
-                        batchSize,
-                        SrcTable.PtCount, SrcTable.PtNotEmpty.Count
-                        ));
+                    SrcTable.RowCount,
+                    batchSize,
+                    SrcTable.PtCount, SrcTable.PtNotEmpty.Count
+                ));
 
                 if (FillType != BackfillType.BulkInsert)
                     PrepareWorker(srcConn, dstConn, dstKeyNames); // Setup the needed SQL environment
@@ -203,16 +209,16 @@ namespace DBBackfill
                                     //  Setup for the SqlBulk Insert to the destination temp table
                                     //
                                     curMergeCount = 0;
-                                    if ((FillType == BackfillType.BulkInsert) /* || (FillType == BackfillType.BulkInsertMerge) */ )
+                                    if ((FillType == BackfillType.BulkInsert) /* || (FillType == BackfillType.BulkInsertMerge) */)
                                     {
-                                        BulkInsertIntoTable(srcDt, trnMerge, dstConn, DstTable.FullTableName, fkb.FKeyCopyCols);
+                                        BulkInsertIntoTable(srcDt, trnMerge, dstConn, DstTable.FullTableName, fkb.FKeyCopyCols, BkfCtrl.CommandTimeout);
                                         //BulkInsertIntoTable(srcDt, trnMerge, dstConn, DstTable.FullTableName, CopyColNames);
                                         curMergeCount = srcDt.Rows.Count;
                                     }
 
-                                    if ((FillType == BackfillType.Merge) /* || (FillType == BackfillType.BulkInsertMerge) */ )
+                                    if ((FillType == BackfillType.Merge) /* || (FillType == BackfillType.BulkInsertMerge) */)
                                     {
-                                        BulkInsertIntoTable(srcDt, trnMerge, dstConn, DstTempFullTableName, fkb.FKeyCopyCols);
+                                        BulkInsertIntoTable(srcDt, trnMerge, dstConn, DstTempFullTableName, fkb.FKeyCopyCols, BkfCtrl.CommandTimeout);
                                         using (SqlCommand cmdDstMerge = new SqlCommand(QryDataMerge, dstConn, trnMerge)) //  Destination datbase connection
                                         {
                                             cmdDstMerge.CommandTimeout = BkfCtrl.CommandTimeout; // Set the set timeout value
@@ -224,21 +230,46 @@ namespace DBBackfill
                                                     mrgRdr.Close(); // Close the reader)
                                                 }
 
-                                                curMergeCount = (int)dtMerge.Rows[0]["_InsCount_"];
-                                                int curDelCount = (int)dtMerge.Rows[0]["_DelCount_"];
+                                                curMergeCount = (int) dtMerge.Rows[0]["_InsCount_"];
+                                                int curDelCount = (int) dtMerge.Rows[0]["_DelCount_"];
                                             }
                                         }
                                     }
 
                                     MergeRowCount += curMergeCount;
-                                    trnMerge.Commit();
+
+                                    //  Now commit the bulk insert.  This sometimes hits a timeout which nobody can explain.  So we will just capture it
+                                    //
+                                    try
+                                    {
+                                        trnMerge.Commit();  // Good insert - Commit it
+                                    }
+                                    catch (Exception commitEx)
+                                    {
+                                        BkfCtrl.DebugOutputException(commitEx);  // Error on commit --  Make note and continue
+                                    }
                                 }
-                                catch (Exception ex)
+                                catch (Exception insertEx)
                                 {
-                                    trnMerge.Rollback();
-                                    BkfCtrl.DebugOutputException(ex);
+                                    BkfCtrl.DebugOutputException(insertEx);
+                                    try
+                                    {
+                                        trnMerge.Rollback();  // We had an error
+                                    }
+                                    catch (Exception rollbackEx)
+                                    {
+                                        BkfCtrl.DebugOutputException(rollbackEx);
+                                    }
+
+                                    throw insertEx; // Throw the original exception
+                                }
+                                finally
+                                {
+                                    trnMerge.Dispose(); // Deallocate transaction object
+                                    trnMerge = null;
                                 }
                             }
+                            srcDt.Clear();  // Deallocate the DataTable now
                         }
 
                         //  Last step -- write a progress record for restart purposes
@@ -317,16 +348,21 @@ namespace DBBackfill
         //
         //  Bulk Import a DataTable into a destination table
         //
-        private int BulkInsertIntoTable(DataTable srcDt, SqlTransaction trnActive, SqlConnection dstConn, string destTableName, List<TableColInfo> copyCols)
+        private int BulkInsertIntoTable(DataTable srcDt, 
+                                        SqlTransaction trnActive, 
+                                        SqlConnection dstConn, 
+                                        string destTableName, 
+                                        List<TableColInfo> copyCols,
+                                        int cmdTimeout)
         {
             SqlBulkCopyOptions bcpyOpts = SqlBulkCopyOptions.KeepNulls | SqlBulkCopyOptions.CheckConstraints | SqlBulkCopyOptions.FireTriggers ;
-            if (DstTable.HasIdentity) bcpyOpts |= SqlBulkCopyOptions.KeepIdentity;
+            if (DstTable.HasIdentity) bcpyOpts |= (SqlBulkCopyOptions.KeepIdentity);  // Enable IDENTITY INSERT if the destination table has an IDENTITY column
 
             using (SqlBulkCopy bulkCopy = new SqlBulkCopy(dstConn, bcpyOpts, trnActive))
             {
                 try
                 {
-                    bulkCopy.BulkCopyTimeout = BkfCtrl.CommandTimeout;
+                    bulkCopy.BulkCopyTimeout = cmdTimeout;
                     bulkCopy.DestinationTableName = destTableName;
 
                     // Setup explicit column mapping to avoid any problem from the default mapping behavior
@@ -344,11 +380,11 @@ namespace DBBackfill
                     bulkCopy.WriteToServer(srcDt); // Write from the source to the destination.
                     return srcDt.Rows.Count;
                 }
-                catch (Exception ex)
+                catch (Exception bulkCopyEx)
                 {
-                    BkfCtrl.DebugOutput(string.Format("Exception: {0}", ex.Message));
-                    BkfCtrl.DebugOutput(string.Format("Exception: {0}", ex.StackTrace));
-                    throw new ApplicationException("BulkInsertIntoTable: ", ex);
+                    //BkfCtrl.DebugOutput(string.Format("Exception: {0}", bulkCopyEx.Message));
+                    //BkfCtrl.DebugOutput(string.Format("Exception: {0}", bulkCopyEx.StackTrace));
+                    throw new ApplicationException("BulkInsertIntoTable: ", bulkCopyEx);
                 }
             }
         }

@@ -9,20 +9,6 @@ using System.Linq;
 namespace DBBackfill
 {
 
-    //public class ExtraSrcColumn
-    //{
-    //    public TableInfo Table = null;
-    //    public TableColInfo CopyColumn = null;
-    //    public Dictionary<string, string> JoinColumns = new Dictionary<string, string>();
-
-    //    public ExtraSrcColumn(TableInfo srcTable, string copyColumn, string joinColumns = "")
-    //    {
-    //        Table = srcTable;
-    //        CopyColumn = Table[copyColumn];
-
-    //    }
-    //}
-
     public class BackfillCtl 
     {
         //  Private 
@@ -50,9 +36,13 @@ namespace DBBackfill
         public bool DebugToConsole { get; set; }
         private string _debugFile = string.Empty;   // Path to debug file, if one is required
  
-        public void BackfillData(TableInfo srcTable, TableInfo dstTable, List<string> copyColNames,
-                                 FetchKeyBoundary fkb, int batchSize,
-                                 List<string> srcKeyNames = null, List<string> dstKeyNames = null)
+        public void BackfillData(TableInfo srcTable, 
+                                 TableInfo dstTable, 
+                                 List<string> copyColNames,
+                                 FetchKeyBoundary fkb, 
+                                 int batchSize,
+                                 List<string> srcKeyNames = null, 
+                                 List<string> dstKeyNames = null)
         {
             BackfillContext bfCtx = new BackfillContext(this, srcTable, dstTable, copyColNames);
             if (fkb == null)
@@ -61,7 +51,7 @@ namespace DBBackfill
             }
 
             bfCtx.FillType = fkb.FillType;
-            bfCtx.BackfillData(fkb, batchSize, srcKeyNames ?? fkb.FKeyColNames, dstKeyNames);
+            bfCtx.BackfillData(fkb, batchSize, bfCtx.BkfCtrl.CommandTimeout, srcKeyNames ?? fkb.FKeyColNames, dstKeyNames);
             bfCtx.Dispose();
         }
 
@@ -74,7 +64,7 @@ namespace DBBackfill
             BackfillContext bfCtx = new BackfillContext(this, fkb.FKeySrcTable, dstTable);
 
             bfCtx.FillType = fkb.FillType;
-            bfCtx.BackfillData(fkb, batchSize, fkb.FKeyColNames, dstKeyNames);
+            bfCtx.BackfillData(fkb, batchSize, bfCtx.BkfCtrl.CommandTimeout, fkb.FKeyColNames, dstKeyNames);
             bfCtx.Dispose();
         }
 
@@ -96,9 +86,12 @@ namespace DBBackfill
         //
         //  Methods -- Database connections
         //
-        static public SqlConnection OpenDB(string dbServer, string dbDbName = "master")
+        static public SqlConnection OpenDB(string dbServer, int connectTimeout, string dbDbName = "master")
         {
-            string connString = string.Format("server={0};database={1};trusted_connection=true;", dbServer, dbDbName);
+            string connString = string.Format("server={0};database={1};Connection Timeout={2};trusted_connection=true", 
+                dbServer, 
+                dbDbName, 
+                connectTimeout);
             SqlConnection dbConn = new SqlConnection(connString);
             dbConn.Open();         
             return dbConn;
@@ -186,7 +179,6 @@ namespace DBBackfill
                 DebugOutput(string.Format("Exception: [{0}] {1}", exNest, ex2.StackTrace));
                 ex2 = ex2.InnerException;
             }
-            throw new ApplicationException("BackfillWorker Exception: ", ex);
         }
 
 

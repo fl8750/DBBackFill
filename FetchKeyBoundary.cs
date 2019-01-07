@@ -163,17 +163,6 @@ SELECT  {1}
                 srcTable.FullTableName,
                 string.Join(
                     ", \n        ",
-                      //srcTable.Columns
-                      //        .Where(col => !col.Value.Ignore)
-                      //        .OrderBy(col => col.Value.ID)
-                      //        .Select(col => string.IsNullOrEmpty(col.Value.LoadExpression)
-                      //                    ? String.Concat("SRC.", (object)col.Value.NameQuoted)
-                      //                    : String.Concat(col.Value.LoadExpression, " AS ", col.Value.NameQuoted))
-                      //FKeyCopyCols
-                      //        .Select(col => string.IsNullOrEmpty(col.LoadExpression)
-                      //                    ? String.Concat("SRC.", (object)col.Name0Quoted)
-                      //                    : String.Concat(col.LoadExpression, " AS ", col.NameQuoted))
-                      //                .ToArray()),
                     FKeyCopyCols.Select(col => string.Concat(col.LoadExpression.Replace("[__X__]", String.Concat("SRC.", (object)col.NameQuoted)), 
                                             " AS ", 
                                             col.NameQuoted))
@@ -195,7 +184,7 @@ SELECT  {1}
 
             //  If required, fetch rows from each partition individually (performance)
             //
-            if ((FlgSelectByPartition) && (srcTable.PtFunc != null))
+            if (FlgSelectByPartition && (srcTable.PtFunc != null))
             {
                 sbFetch.AppendFormat("       WHERE ($PARTITION.[{0}]({1}) = {2}) \n", srcTable.PtFunc, srcTable.PtCol.NameQuoted, curPtNumber);
                 ++whereCnt;

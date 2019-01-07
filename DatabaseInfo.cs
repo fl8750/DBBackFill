@@ -56,7 +56,7 @@ namespace DBBackfill
         //
         public void PrepareDatabaseInfo()
         {
-            using (SqlConnection dbConn = BackfillCtl.OpenDB(InstanceName, DatabaseName))
+            using (SqlConnection dbConn = BackfillCtl.OpenDB(InstanceName, 60, DatabaseName))
             {
                 _tables = new TableInfoList(dbConn, DatabaseName);
                 Publications = new PublicationList(dbConn, this);

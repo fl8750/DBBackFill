@@ -27,14 +27,14 @@ namespace DBBackfill
 
         //  Data source information
         //
-        public SqlConnection SrcConn;
+       // public SqlConnection SrcConn;
         public TableInfo SrcTable { get; private set; }
         public List<string> SrcKeyNames = new List<string>();
         public List<string> CopyColNames = new List<string>();
 
         //  Data destination Information
         //
-        public SqlConnection DstConn;
+        //public SqlConnection DstConn;
         public TableInfo DstTable { get; private set; }
         public List<string> DstKeyNames = new List<string>();
 
@@ -76,7 +76,7 @@ namespace DBBackfill
             {
                 return IsSrcDstEqual
                     ? string.Format("[#{0}]", DstTempTableName)
-                    : string.Format("[{1}].[dbo].[{0}]", DstTempTableName, DstConn.Database);
+                    : string.Format("[{1}].[dbo].[{0}]", DstTempTableName, DstTable.DbName);
             }
         }
 
@@ -90,11 +90,11 @@ namespace DBBackfill
             //
             BkfCtrl = bkfCtrl;
 
-            SrcTable = srcTable;
-            SrcConn = BackfillCtl.OpenDB(SrcTable.InstanceName, SrcTable.DbName);
+            //SrcTable = srcTable;
+            //SrcConn = BackfillCtl.OpenDB(SrcTable.InstanceName, SrcTable.DbName);
 
-            DstTable = dstTable;
-            DstConn = BackfillCtl.OpenDB(DstTable.InstanceName, DstTable.DbName);
+            //DstTable = dstTable;
+            //DstConn = BackfillCtl.OpenDB(DstTable.InstanceName, DstTable.DbName);
 
             //  Get the list of columns to copy
             //
@@ -134,8 +134,11 @@ namespace DBBackfill
 
             //  Identify the default columns used for unique row indexing
             //
-            SrcKeyNames = SrcTable.Where(cl => (cl.KeyOrdinal > 0)).OrderBy<TableColInfo, int>(cl => cl.KeyOrdinal).Select(cl => cl.Name).ToList();
-            DstKeyNames = DstTable.Where(cl => (cl.KeyOrdinal > 0)).OrderBy(cl => cl.KeyOrdinal).Select(cl => cl.Name).ToList();
+            SrcTable = srcTable;
+            DstTable = dstTable;
+
+            SrcKeyNames = srcTable.Where(cl => (cl.KeyOrdinal > 0)).OrderBy<TableColInfo, int>(cl => cl.KeyOrdinal).Select(cl => cl.Name).ToList();
+            DstKeyNames = dstTable.Where(cl => (cl.KeyOrdinal > 0)).OrderBy(cl => cl.KeyOrdinal).Select(cl => cl.Name).ToList();
 
             //  Setup the initial copy/backfill options
             //
@@ -147,10 +150,10 @@ namespace DBBackfill
         //
         public void Dispose()
         {
-            BackfillCtl.CloseDb(SrcConn);
-            SrcConn = null;
-            BackfillCtl.CloseDb(DstConn);
-            DstConn = null;
+            //BackfillCtl.CloseDb(SrcConn);
+            //SrcConn = null;
+            //BackfillCtl.CloseDb(DstConn);
+            //DstConn = null;
         }
     }
 }
