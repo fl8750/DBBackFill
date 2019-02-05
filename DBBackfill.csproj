@@ -44,15 +44,15 @@
     <Compile Include="BackfillContext.cs" />
     <Compile Include="BackfillCtl.cs" />
     <Compile Include="BackfillWorker.cs" />
-    <Compile Include="DatabaseInfo.cs" />
+    <Compile Include="SqlServer\DatabaseInfo.cs" />
     <Compile Include="FetchKeyBase.cs" />
     <Compile Include="FetchKeyBoundary.cs" />
-    <Compile Include="InstanceInfo.cs" />
+    <Compile Include="SqlServer\InstanceInfo.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Publication.cs" />
-    <Compile Include="PublicationList.cs" />
-    <Compile Include="TableColInfo.cs" />
-    <Compile Include="TableInfo.cs" />
+    <Compile Include="SqlServer\Publication.cs" />
+    <Compile Include="SqlServer\PublicationList.cs" />
+    <Compile Include="SqlServer\TableColInfo.cs" />
+    <Compile Include="SqlServer\TableInfo.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
