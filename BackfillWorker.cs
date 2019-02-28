@@ -143,8 +143,8 @@ namespace DBBackfill
 
                                 //  First, fetch the end key limits
                                 //
-                                cmdSrcDb.CommandText = fkb.FetchKeyLimitsSql;
                                 cmdSrcDb.CommandType = CommandType.Text;
+                                cmdSrcDb.CommandText = fkb.FetchKeyLimitsSql;
                                 cmdSrcDb.CommandTimeout = BkfCtrl.CommandTimeout;
 
                                 using (SqlDataReader srcRdr = cmdSrcDb.ExecuteReader()) // Fetch data into a data reader
