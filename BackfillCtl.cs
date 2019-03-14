@@ -17,7 +17,7 @@ namespace DBBackfill
 
         private StreamWriter logFile = null;
 
-        //  General information
+        //  General information properties
         //
         public string WorkSchemaName { get; private set; }
         public string SessionName { get; set; }
@@ -27,6 +27,21 @@ namespace DBBackfill
         {
             get { return System.Reflection.Assembly.GetAssembly(typeof(BackfillContext)).GetName().Version.ToString(); }
         }
+
+        //  
+        //  Lists
+        //
+
+        public InstanceInfo this[string instanceName]  // Indexer for the _instances list
+        { get { return _instances[instanceName]; } }
+
+        public InstanceInfo GetInstance(string instanceName)  // Added because PowerShell doesn't seem to handle indexers
+        {
+            return _instances[instanceName];
+        }
+
+
+
 
         //  Debug information
         //
@@ -55,7 +70,11 @@ namespace DBBackfill
             bfCtx.Dispose();
         }
 
-
+        // 
+        //  Methods
+        //
+        //  Backfill overloaded methods
+        //
         public void BackfillData(FetchKeyBoundary fkb,
                                  TableInfo dstTable,
                                  int batchSize,
@@ -78,10 +97,6 @@ namespace DBBackfill
 
         //  Method
         //
-        public InstanceInfo GetInstance(string instanceName)
-        {
-            return _instances[instanceName];
-        }
 
         //
         //  Methods -- Database connections
@@ -127,9 +142,6 @@ namespace DBBackfill
                 _debugFile = value;
             }
         }
-
-        public InstanceInfo this[string instanceName]
-        { get { return _instances[instanceName]; } }
 
 
         //  Methods 

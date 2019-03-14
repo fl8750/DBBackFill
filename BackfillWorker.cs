@@ -53,14 +53,20 @@ namespace DBBackfill
             try
             {
                 //  Start 
-                BkfCtrl.DebugOutput(string.Format("Backfill Start v{6} -- [{0}].[{1}].{2} --> [{3}].[{4}].{5}\n",
+                BkfCtrl.DebugOutput(string.Format("Backfill Start v{0}",
+                        this.BkfCtrl.Version
+                       ));
+
+                BkfCtrl.DebugOutput(string.Format("Source table: [{0}].[{1}].{2}",
                         SrcTable.InstanceName,
                         SrcTable.DbName,
-                        SrcTable.FullTableName,
+                        SrcTable.FullTableName
+                       ));
+
+                BkfCtrl.DebugOutput(string.Format("Destination table: [{0}].[{1}].{2}",
                         DstTable.InstanceName,
                         DstTable.DbName,
-                        DstTable.FullTableName,
-                        this.BkfCtrl.Version
+                        DstTable.FullTableName
                        ));
 
                 //  Show the rowcount
@@ -139,7 +145,14 @@ namespace DBBackfill
                         {
                             using (SqlCommand cmdSrcDb = new SqlCommand("", srcConn)) // Source database command
                             {
-                                fkb.BuildFetchQuery(cmdSrcDb, SrcTable, batchSize, curPartition, (FetchLoopCount == 0), CopyColNames, srcKeyNames, currentFKeyList);
+                                fkb.BuildFetchQuery(cmdSrcDb, 
+                                    SrcTable, 
+                                    batchSize, 
+                                    curPartition, 
+                                    (FetchLoopCount == 0) || (currentFKeyList.Count > 0), 
+                                    CopyColNames, 
+                                    srcKeyNames, 
+                                    currentFKeyList);
 
                                 //  First, fetch the end key limits
                                 //
@@ -272,6 +285,47 @@ namespace DBBackfill
                             srcDt.Clear();  // Deallocate the DataTable now
                         }
 
+                        //
+                        //  Output the restart information
+                        //
+                        if (BkfCtrl.Debug > 0)
+                        {
+                            for (int rKeyNo=0; rKeyNo < nextFKeyList.Count; rKeyNo++)
+                            {
+                                object rKey = nextFKeyList[rKeyNo];  // Get the next restart key
+                                string rKeyType = rKey.GetType().Name;  // Get the .NET datatype
+                                string rKeyValue;
+                                switch (rKey.GetType().Name)
+                                {
+                                    case "string":
+                                        rKeyValue = $"\"{rKey}\"";
+                                        break;
+
+                                    case "DateTime":
+                                        rKeyValue = string.Format("\"{0}\"",((DateTime)rKey).ToString("yyyy-MM-dd HH:mm:ss.fff"));
+                                        break;
+
+                                    default:
+                                        rKeyValue = rKey.ToString();
+                                        break;
+                                }
+
+                                //  Output the current partition number
+                                //
+                                if (rKeyNo == 0)
+                                    BkfCtrl.DebugOutput(string.Format("$RestartPartition = {0}  # Partition No;",
+                                        curPartition
+                                        ));
+
+                                BkfCtrl.DebugOutput(string.Format("$RestartKeys += [{0}] {1} # Restart key[{2}] - [{3}];",
+                                    rKeyType,
+                                    rKeyValue,
+                                    rKeyNo,
+                                    CopyColNames[rKeyNo]
+                                    ));
+                            }
+                        }
+
                         //  Last step -- write a progress record for restart purposes
                         //
                         if (BkfCtrl.Debug > 0)
@@ -305,7 +359,6 @@ namespace DBBackfill
 
                 // Completion messages
                 //
-
                 if (BkfCtrl.Debug > 0)
                 {
                     BkfCtrl.DebugOutput(string.Format("-- Backfill Complete --- Copied: {0:#,##0}  Merged: {1:#,##0}  Chunks: {2:#,##0} ",

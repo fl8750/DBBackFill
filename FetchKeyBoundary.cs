@@ -103,7 +103,10 @@ SELECT  {1}
             //
             if ((FlgSelectByPartition) && (srcTable.PtFunc != null))
             {
-                sbWhere.AppendFormat("\n                    WHERE ($PARTITION.[{0}]({1}) = {2}) \n                    ", srcTable.PtFunc, srcTable.PtCol.NameQuoted, curPtNumber);
+                sbWhere.AppendFormat("\n                    WHERE ($PARTITION.[{0}]({1}) = {2}) \n                    ",
+                    srcTable.PtFunc,
+                    srcTable.PtCol.NameQuoted,
+                    curPtNumber);
                 ++whereCnt;
             }
 
