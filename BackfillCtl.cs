@@ -32,7 +32,6 @@ namespace DBBackfill
         //  
         //  Lists
         //
-
         public InstanceInfo this[string instanceName]  // Indexer for the _instances list
         { get { return _instances[instanceName]; } }
 
