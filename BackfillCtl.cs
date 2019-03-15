@@ -21,6 +21,7 @@ namespace DBBackfill
         //
         public string WorkSchemaName { get; private set; }
         public string SessionName { get; set; }
+        public int ConnectTimeout { get; set; } // Default SQL connection attemp timeout in seconds
         public int CommandTimeout { get; set; } // Default SQL timeout in seconds
 
         public string Version
@@ -41,9 +42,7 @@ namespace DBBackfill
         }
 
 
-
-
-        //  Debug information
+        //  Debug properties
         //
         public Exception CapturedException = null;
 
@@ -51,52 +50,6 @@ namespace DBBackfill
         public bool DebugToConsole { get; set; }
         private string _debugFile = string.Empty;   // Path to debug file, if one is required
  
-        public void BackfillData(TableInfo srcTable, 
-                                 TableInfo dstTable, 
-                                 List<string> copyColNames,
-                                 FetchKeyBoundary fkb, 
-                                 int batchSize,
-                                 List<string> srcKeyNames = null, 
-                                 List<string> dstKeyNames = null)
-        {
-            BackfillContext bfCtx = new BackfillContext(this, srcTable, dstTable, copyColNames);
-            if (fkb == null)
-            {
-                fkb = srcTable.CreateFetchKeyComplete(srcKeyNames);  // If no FetchKey specified, assume a full table scan
-            }
-
-            bfCtx.FillType = fkb.FillType;
-            bfCtx.BackfillData(fkb, batchSize, bfCtx.BkfCtrl.CommandTimeout, srcKeyNames ?? fkb.FKeyColNames, dstKeyNames);
-            bfCtx.Dispose();
-        }
-
-        // 
-        //  Methods
-        //
-        //  Backfill overloaded methods
-        //
-        public void BackfillData(FetchKeyBoundary fkb,
-                                 TableInfo dstTable,
-                                 int batchSize,
-                                 List<string> srcKeyNames = null, List<string> dstKeyNames = null)
-        {
-            BackfillContext bfCtx = new BackfillContext(this, fkb.FKeySrcTable, dstTable);
-
-            bfCtx.FillType = fkb.FillType;
-            bfCtx.BackfillData(fkb, batchSize, bfCtx.BkfCtrl.CommandTimeout, fkb.FKeyColNames, dstKeyNames);
-            bfCtx.Dispose();
-        }
-
-        public void BackfillData(TableInfo srcTable, TableInfo dstTable, List<string> copyColNames,
-                                 FetchKeyBoundary fkb, int batchSize,
-                                 string srcKeyNames , string dstKeyNames )
-        {
-            BackfillData(srcTable, dstTable, copyColNames, fkb, batchSize,
-                           srcKeyNames.Split(',').ToList(), dstKeyNames.Split(',').ToList());
-        }
-
-        //  Method
-        //
 
         //
         //  Methods -- Database connections
@@ -122,7 +75,6 @@ namespace DBBackfill
         }
 
 
-        // =======================================================================================
         //
         //  Debug output Methods
         //
@@ -144,8 +96,12 @@ namespace DBBackfill
         }
 
 
+        // =======================================================================================
+        //
         //  Methods 
         //
+        // =======================================================================================
+
         public void OpenInstance(string instanceName)
         {
             InstanceInfo newInst = _instances[instanceName];
@@ -156,6 +112,51 @@ namespace DBBackfill
         }
 
 
+        //
+        //  Backfill overloaded methods
+        //
+        public void BackfillData(TableInfo srcTable,
+                                 TableInfo dstTable,
+                                 List<string> copyColNames,
+                                 FetchKeyBoundary fkb,
+                                 int batchSize,
+                                 List<string> srcKeyNames = null,
+                                 List<string> dstKeyNames = null)
+        {
+            BackfillContext bfCtx = new BackfillContext(this, srcTable, dstTable, copyColNames);
+            if (fkb == null)
+            {
+                fkb = srcTable.CreateFetchKeyComplete(srcKeyNames);  // If no FetchKey specified, assume a full table scan
+            }
+
+            bfCtx.FillType = fkb.FillType;
+            bfCtx.BackfillData(fkb, batchSize, bfCtx.BkfCtrl.CommandTimeout, srcKeyNames ?? fkb.FKeyColNames, dstKeyNames);
+            bfCtx.Dispose();
+        }
+
+ 
+        public void BackfillData(FetchKeyBoundary fkb,
+                                 TableInfo dstTable,
+                                 int batchSize,
+                                 List<string> srcKeyNames = null, List<string> dstKeyNames = null)
+        {
+            BackfillContext bfCtx = new BackfillContext(this, fkb.FKeySrcTable, dstTable);
+
+            bfCtx.FillType = fkb.FillType;
+            bfCtx.BackfillData(fkb, batchSize, bfCtx.BkfCtrl.CommandTimeout, fkb.FKeyColNames, dstKeyNames);
+            bfCtx.Dispose();
+        }
+
+        public void BackfillData(TableInfo srcTable, TableInfo dstTable, List<string> copyColNames,
+                                 FetchKeyBoundary fkb, int batchSize,
+                                 string srcKeyNames, string dstKeyNames)
+        {
+            BackfillData(srcTable, dstTable, copyColNames, fkb, batchSize,
+                           srcKeyNames.Split(',').ToList(), dstKeyNames.Split(',').ToList());
+        }
+
+
+        //
         //  Debug output file Methods
         //
         public void DebugOutput(string debugMessage)
@@ -194,15 +195,21 @@ namespace DBBackfill
         }
 
 
+        
+        // =======================================================================================
         //
         //  Constructor
         //
+        // =======================================================================================
+
         public BackfillCtl(string sessionName = "default", int debug = 0)
         {
             WorkSchemaName = "Backfill";
             SessionName = (sessionName == "default") ? DateTime.Now.ToString("yyyyMMddHHmm") : sessionName;
             Debug = debug;
             DebugToConsole = true;
+
+            ConnectTimeout = 30;    // Set default timeouts
             CommandTimeout = 600;
         }
 
