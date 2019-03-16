@@ -1,0 +1,58 @@
+﻿<#@ template debug="true" hostspecific="true" language="C#" #>
+<#@ output extension=".cs" #>
+<#@ import namespace="System.IO" #>
+<#@ import namespace="System.Text.RegularExpressions" #>
+<#
+    string output = File.ReadAllText(this.Host.ResolvePath("AssemblyInfo.cs"));
+    Regex pattern = new Regex("AssemblyVersion\\(\"(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<revision>\\d+)\\.(?<build>\\d+)\"\\)");
+    MatchCollection matches = pattern.Matches(output);
+    if( matches.Count == 1 )
+    {
+        major = Convert.ToInt32(matches[0].Groups["major"].Value);
+        minor = Convert.ToInt32(matches[0].Groups["minor"].Value);
+        string strRevision = matches[0].Groups["revision"].Value;
+        string strBuild = matches[0].Groups["build"].Value;
+//		Int32 build = 0;
+//		Int32 revision = 0;
+//        string strRevision = "0";
+//        string strBuild = "0";
+        string strDate = string.Concat("000",strRevision).Substring(3+strRevision.Length-4,4) + 
+						 string.Concat("0000",strBuild).Substring(4+strBuild.Length-5,2);
+		Int32 buildDate = Int32.Parse(strDate);
+		Int32 buildInc = Int32.Parse(strBuild) % 1000;
+		Int32 newBuildDate = Int32.Parse(DateTime.Now.ToString("yyMMdd"));
+		if (buildDate != newBuildDate)
+			build = 1;
+		else
+			build = ++buildInc;
+		build = build + ((newBuildDate % 100) * 1000);
+		revision = newBuildDate / 100;
+    }
+#>
+
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Resources;
+
+// General Information
+[assembly: AssemblyTitle("DBBackfill")]
+[assembly: AssemblyDescription("DBBackfill")]
+[assembly: AssemblyConfiguration("")]
+[assembly: AssemblyCompany("FS")]
+[assembly: AssemblyProduct("DBBackfill")]
+[assembly: AssemblyCopyright("2017-2019")]
+[assembly: AssemblyTrademark("")]
+[assembly: AssemblyCulture("")]
+
+// Version informationr(
+[assembly: AssemblyVersion("<#= this.major #>.<#= this.minor #>.<#= this.revision #>.<#= this.build #>")]
+[assembly: AssemblyFileVersion("<#= this.major #>.<#= this.minor #>.<#= this.revision #>.<#= this.build #>")]
+[assembly: NeutralResourcesLanguageAttribute( "en-US" )]
+
+<#+
+    int major = 3;
+    int minor = 0;
+    int revision = 0;
+    int build = 0;
+#>

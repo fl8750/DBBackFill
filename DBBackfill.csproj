@@ -44,17 +44,34 @@
     <Compile Include="BackfillContext.cs" />
     <Compile Include="BackfillCtl.cs" />
     <Compile Include="BackfillWorker.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs">
+      <AutoGen>True</AutoGen>
+      <DesignTime>True</DesignTime>
+      <DependentUpon>AssemblyInfo.tt</DependentUpon>
+    </Compile>
     <Compile Include="SqlServer\DatabaseInfo.cs" />
     <Compile Include="FetchKeyBase.cs" />
     <Compile Include="FetchKeyBoundary.cs" />
     <Compile Include="SqlServer\InstanceInfo.cs" />
-    <Compile Include="Properties\AssemblyInfo.cs" />
+    <None Include="Properties\AssemblyInfo.cs.1" />
     <Compile Include="SqlServer\Publication.cs" />
     <Compile Include="SqlServer\PublicationList.cs" />
     <Compile Include="SqlServer\TableColInfo.cs" />
     <Compile Include="SqlServer\TableInfo.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="Properties\AssemblyInfo.tt">
+      <Generator>TextTemplatingFileGenerator</Generator>
+      <LastGenOutput>AssemblyInfo.cs</LastGenOutput>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <Service Include="{508349B6-6B84-4DF5-91F0-309BEEBAD82D}" />
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <PropertyGroup>
+    <PreBuildEvent>"%25CommonProgramFiles(x86)%25\microsoft shared\TextTemplating\14.0\TextTransform.exe" -a !!$(ConfigurationName)!1 "$(ProjectDir)Properties\AssemblyInfo.tt"</PreBuildEvent>
+  </PropertyGroup>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
   <Target Name="BeforeBuild">
