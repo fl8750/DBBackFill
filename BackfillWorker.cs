@@ -139,8 +139,7 @@ namespace DBBackfill
                                     SrcTable,
                                     batchSize,
                                     curPartition,
-                                    //((fkb.StartKeyList.Count > 0) && (fkb.RestartKeyList.Count == 0) && 
-                                    (FetchLoopCount == 0),
+                                    ((fetchCountSinceStart == 0) && (fkb.StartKeyList.Count > 0)),
                                     CopyColNames,
                                     srcKeyNames,
                                     currentFKeyList);
