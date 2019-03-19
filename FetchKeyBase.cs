@@ -28,13 +28,14 @@ namespace DBBackfill
             InnerJoin,
             OuterJoin
         }
-        public RLType RLConfigured { get; protected set; } 
+        public RLType RLConfigured { get; protected set; }
+
         //public bool RLRelationPresent { get; protected set; } // If true, then a foreign key relation is used on each data row fetch
         public TableInfo RLTable { get; protected set; }  // If not null, then a reference to a foreign/parent table
         public TableColInfo RLSrcTableCol { get; protected set; }  // If FKSrcTable not null, then reference to source table column
         public TableColInfo RLTableCol { get; protected set; } // If FKSrcTable not null, then reference to foreign table column
 
-        
+
         //  Boolean properties
         //
         public bool FlgOrderBy = true;
@@ -47,40 +48,35 @@ namespace DBBackfill
         public List<object> RestartKeyList { get; private set; }
 
         //  Backfill 
-        private BackfillType _fillType;
+        //
+        //private BackfillType _fillType;
 
-        public BackfillType FillType
-        {
-            get => _fillType;
-            set => _fillType = value;
-        }
+        public BackfillType FillType { get; set; }
 
         public string FillTypeName
         {
-            get => _fillType.ToString(); // Get the BackfillType name
-            set => _fillType = (BackfillType) Enum.Parse(typeof(BackfillType), value);
+            get => FillType.ToString(); // Get the BackfillType name
+            set => FillType = (BackfillType)Enum.Parse(typeof(BackfillType), value);
         }
 
         //  Restart positioning information 
         //
-        public bool FlgRestart // Set true when initial restart check performed
-        {
-            get;
-            protected set;
-        }
+        public bool FlgRestart { get; protected set; } // Set true when initial restart check performed
+        //{
+        //    get;
+        //    protected set;
+        //}
 
         private int _restartPartition = 0;
-
         public int RestartPartition // Restart partition number
         {
             get => _restartPartition;
             set
             {
                 _restartPartition = value;
-                FlgRestart = (_restartPartition >= 1); // Set the restart flag accordingly
+                FlgRestart = true; // Set the restart flag accordingly
             }
         }
-
 
         public void AddRestartKey(object newKey)
         {
@@ -191,6 +187,7 @@ namespace DBBackfill
 
 
             FlgRestart = false; // Assume no restart at this point
+            RestartPartition = 1;  // Assume the first partition
             RestartKeyList = new List<object>(); // Clear out the restart keys list
 
             RLConfigured = RLType.NoRelationSet;  // No relationship set

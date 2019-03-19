@@ -22,12 +22,13 @@ namespace DBBackfill
             //  Local information
             //
             bool isSameInstance = false;
-            bool hasRestarted = false; // 
+
             int fetchCountSinceStart = 0; // Count the number of row fetchs since start
 
             int curFetchCount = 0; // Number of rows fetched from the source table
             int curMergeCount = 0; // Number of rows merged into the destination table
 
+            List<object> currentFKeyList = new List<object>();
 
             //  Prepare the SQL connections to the source and destination databases
             //
@@ -90,43 +91,33 @@ namespace DBBackfill
                 MergeRowCount = 0; // Total number of rows inserted into the dest table
 
                 int ptIdx = 0;
-                if ( fkb.FlgRestart && (fkb.RestartPartition != 1))
+                if (fkb.FlgRestart)
                 {
+                    // If the selected partition does exists then start at the next highest or the last
+                    //
                     BkfCtrl.DebugOutput(string.Format("      Restart partition: {0}", fkb.RestartPartition));
                     for (ptIdx = 0; ptIdx < SrcTable.PtNotEmpty.Count; ptIdx++)
+                    {
                         if (SrcTable.PtNotEmpty[ptIdx].PartitionNumber >= fkb.RestartPartition)
-                            break; // If the selected partition does exists then start at the next highest or the last
+                            break;
+                    }
+
+                    //  Copy the restart keys into the current key list
+                    //
+                    for (int idx = 0; (idx < fkb.RestartKeyList.Count) && (idx < srcKeyNames.Count); idx++)
+                    {
+                        currentFKeyList.Add(fkb.RestartKeyList[idx]); // Process any restart keys values
+                    }
                 }
 
+                // ----------------------------------------------------------------------------------------
+                //
                 //  Partition Loop -- Once per partition
                 //
+                // ----------------------------------------------------------------------------------------
                 for (; ptIdx < ((fkb.FlgSelectByPartition) ? SrcTable.PtNotEmpty.Count : 1); ptIdx++)
                 {
                     int curPartition = SrcTable.PtNotEmpty[ptIdx].PartitionNumber;    // Current partition number
-                    hasRestarted = true;  // Assume a restart at the start of each partition
-
-                    //  
-                    //  Setup the initial key value list
-                    //
-                    List<object> currentFKeyList = new List<object>();
-                    if (hasRestarted)
-                    {
-                        if ((fetchCountSinceStart == 0) && fkb.FlgRestart)
-                        {
-                            for (int idx = 0; (idx < fkb.RestartKeyList.Count) && (idx < srcKeyNames.Count); idx++)
-                            {
-                                currentFKeyList.Add(fkb.RestartKeyList[idx]); // Process any restart keys values
-                            }
-                        }
-                        hasRestarted = false;
-                    }
-                    else
-                    {
-                        for (int idx = 0; (idx < fkb.StartKeyList.Count) && (idx < srcKeyNames.Count); idx++)
-                        {
-                            currentFKeyList.Add(fkb.StartKeyList[idx]); // Copy a key value              
-                        }
-                    }
 
                     //
                     //  Main Data Pump loop
@@ -134,7 +125,6 @@ namespace DBBackfill
                     FetchLoopCount = 0; // Number of completed fetchs
                     while (true)
                     {
-                        string sqlFetchData = "";
                         List<object> nextFKeyList;
 
                         SqlTransaction trnMerge;
@@ -149,7 +139,7 @@ namespace DBBackfill
                                     SrcTable, 
                                     batchSize, 
                                     curPartition, 
-                                    (FetchLoopCount == 0) || (currentFKeyList.Count > 0), 
+                                    (currentFKeyList.Count == 0), 
                                     CopyColNames, 
                                     srcKeyNames, 
                                     currentFKeyList);
@@ -205,17 +195,23 @@ namespace DBBackfill
                                 //  Get the key values from the last row in the batch
                                 //
                                 curFetchCount = srcDt.Rows.Count;
-                                if (curFetchCount <= 0) break; // Nothing fetched, exit the data pump loop
-                                FetchRowCount += curFetchCount;
-
-                                ++FetchLoopCount; // Increment the loop count
-                                ++fetchCountSinceStart; // Increment total fetch count
                             }
 
-                            //  Create a transaction object  - Protect the bulk import, merge and truncate statement in a transaction
+                            if (curFetchCount <= 0)
+                            {
+                                break; // Nothing fetched, exit the data pump loop
+                            }
+
+                            //  If rows were fetched, then proceed to the copy to the destination 
                             //
                             if (curFetchCount > 0)
                             {
+                                FetchRowCount += curFetchCount;
+                                ++FetchLoopCount; // Increment the loop count
+                                ++fetchCountSinceStart; // Increment total fetch count
+
+                                //  Create a transaction object  - Protect the bulk import, merge and truncate statement in a transaction
+                                //
                                 trnMerge = dstConn.BeginTransaction();
                                 try
                                 {
@@ -262,6 +258,7 @@ namespace DBBackfill
                                         BkfCtrl.DebugOutputException(commitEx);  // Error on commit --  Make note and continue
                                     }
                                 }
+
                                 catch (Exception insertEx)
                                 {
                                     BkfCtrl.DebugOutputException(insertEx);
@@ -276,6 +273,7 @@ namespace DBBackfill
 
                                     throw insertEx; // Throw the original exception
                                 }
+
                                 finally
                                 {
                                     trnMerge.Dispose(); // Deallocate transaction object
@@ -283,47 +281,6 @@ namespace DBBackfill
                                 }
                             }
                             srcDt.Clear();  // Deallocate the DataTable now
-                        }
-
-                        //
-                        //  Output the restart information
-                        //
-                        if (BkfCtrl.Debug > 0)
-                        {
-                            for (int rKeyNo=0; rKeyNo < nextFKeyList.Count; rKeyNo++)
-                            {
-                                object rKey = nextFKeyList[rKeyNo];  // Get the next restart key
-                                string rKeyType = rKey.GetType().Name;  // Get the .NET datatype
-                                string rKeyValue;
-                                switch (rKey.GetType().Name)
-                                {
-                                    case "string":
-                                        rKeyValue = $"\"{rKey}\"";
-                                        break;
-
-                                    case "DateTime":
-                                        rKeyValue = string.Format("\"{0}\"",((DateTime)rKey).ToString("yyyy-MM-dd HH:mm:ss.fff"));
-                                        break;
-
-                                    default:
-                                        rKeyValue = rKey.ToString();
-                                        break;
-                                }
-
-                                //  Output the current partition number
-                                //
-                                if (rKeyNo == 0)
-                                    BkfCtrl.DebugOutput(string.Format("$RestartPartition = {0}  # Partition No;",
-                                        curPartition
-                                        ));
-
-                                BkfCtrl.DebugOutput(string.Format("$RestartKeys += [{0}] {1} # Restart key[{2}] - [{3}];",
-                                    rKeyType,
-                                    rKeyValue,
-                                    rKeyNo,
-                                    CopyColNames[rKeyNo]
-                                    ));
-                            }
                         }
 
                         //  Last step -- write a progress record for restart purposes
@@ -343,8 +300,15 @@ namespace DBBackfill
                                 ));
                         }
 
+                        //
+                        //  Output the restart information
+                        //
+                        OutputRestartKeys(curPartition, nextFKeyList, CopyColNames);
+
                         currentFKeyList = nextFKeyList; // Set the current key list with the key values from last fetched row
                     }
+
+                    currentFKeyList = new List<object>();  // Clear the restart key list
                 }
 
                 //  Remove the temp table after we are finished with this table
@@ -370,6 +334,7 @@ namespace DBBackfill
 
                 BkfCtrl.CapturedException = null;
             }
+
             catch (Exception ex)
             {
                 Exception ex2 = ex;
@@ -543,6 +508,52 @@ namespace DBBackfill
                 (FillType == BackfillType.GapFill) ? "SRC" : "DST"
                 );
 
+        }
+
+
+        // ===============================================================================================================================
+        //
+        //  Output the restaart keys to the log file
+        //
+        private void OutputRestartKeys(int restartPartition, List<object> restartKeys, List<string> copyColNames)
+        {
+            if (BkfCtrl.Debug > 0)
+            {
+                for (int rKeyNo = 0; rKeyNo < restartKeys.Count; rKeyNo++)
+                {
+                    object rKey = restartKeys[rKeyNo];  // Get the next restart key
+                    string rKeyType = rKey.GetType().Name;  // Get the .NET datatype
+                    string rKeyValue;
+                    switch (rKey.GetType().Name)
+                    {
+                        case "string":
+                            rKeyValue = $"\"{rKey}\"";
+                            break;
+
+                        case "DateTime":
+                            rKeyValue = string.Format("\"{0}\"", ((DateTime)rKey).ToString("yyyy-MM-dd HH:mm:ss.fff"));
+                            break;
+
+                        default:
+                            rKeyValue = rKey.ToString();
+                            break;
+                    }
+
+                    //  Output the current partition number
+                    //
+                    if (rKeyNo == 0)
+                        BkfCtrl.DebugOutput(string.Format("$RestartPartition = {0}  # Partition No;",
+                            restartPartition
+                            ));
+
+                    BkfCtrl.DebugOutput(string.Format("$RestartKeys += [{0}] {1} # Restart key[{2}] - [{3}];",
+                        rKeyType,
+                        rKeyValue,
+                        rKeyNo,
+                        copyColNames[rKeyNo]
+                        ));
+                }
+            }
         }
 
     }
