@@ -135,13 +135,14 @@ namespace DBBackfill
                         {
                             using (SqlCommand cmdSrcDb = new SqlCommand("", srcConn)) // Source database command
                             {
-                                fkb.BuildFetchQuery(cmdSrcDb, 
-                                    SrcTable, 
-                                    batchSize, 
-                                    curPartition, 
-                                    (currentFKeyList.Count == 0), 
-                                    CopyColNames, 
-                                    srcKeyNames, 
+                                fkb.BuildFetchQuery(cmdSrcDb,
+                                    SrcTable,
+                                    batchSize,
+                                    curPartition,
+                                    //((fkb.StartKeyList.Count > 0) && (fkb.RestartKeyList.Count == 0) && 
+                                    (FetchLoopCount == 0),
+                                    CopyColNames,
+                                    srcKeyNames,
                                     currentFKeyList);
 
                                 //  First, fetch the end key limits
@@ -165,7 +166,7 @@ namespace DBBackfill
                                         string pName = string.Format("@lk{0}", idx + 1);
                                         if (!cmdSrcDb.Parameters.Contains(pName))
                                         {
-                                            SqlDbType dbType = (SqlDbType) Enum.Parse(typeof(SqlDbType), SrcTable[srcKeyNames[idx]].Datatype, true);
+                                            SqlDbType dbType = (SqlDbType)Enum.Parse(typeof(SqlDbType), SrcTable[srcKeyNames[idx]].Datatype, true);
                                             cmdSrcDb.Parameters.Add(pName, dbType);
                                         }
 
@@ -185,7 +186,7 @@ namespace DBBackfill
                                     {
                                         srcDt.Load(srcRdr); // Load the data into a DataTable
                                         srcRdr.Close(); // Close the reader
-                                    }                                  
+                                    }
                                 }
                                 else
                                 {
@@ -206,7 +207,7 @@ namespace DBBackfill
                             //
                             if (curFetchCount > 0)
                             {
-                                FetchRowCount += curFetchCount;
+                                FetchRowCount += curFetchCount;  // Add the row fetch count to the running total
                                 ++FetchLoopCount; // Increment the loop count
                                 ++fetchCountSinceStart; // Increment total fetch count
 
