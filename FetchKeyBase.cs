@@ -60,6 +60,10 @@ namespace DBBackfill
             set => FillType = (BackfillType)Enum.Parse(typeof(BackfillType), value);
         }
 
+        //  Additional WHERE clause specifications
+        //
+        public string AndWhere { get; set; }  // Raw TSQL contional used as an additional WHERE clause
+
         //  Restart positioning information 
         //
         public bool FlgRestart { get; protected set; } // Set true when initial restart check performed

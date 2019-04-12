@@ -146,6 +146,14 @@ SELECT  {1}
 
             }
 
+            //  Check for an "AndWhere" clause
+            //
+            if (!string.IsNullOrEmpty(AndWhere))
+            {
+                sbWhere.AppendFormat("\n                    {0} ", (whereCnt++ == 0) ? "WHERE" : "AND"); // Add the proper keyword
+                sbWhere.AppendFormat("({0}) \n                    ", AndWhere);
+            }
+
             // Now build the full fetch script
             //
             sbFetch.AppendFormat(strKeyLimits,
@@ -226,6 +234,15 @@ SELECT  {1}
             sbFetch.AppendFormat("      {0} \n", (whereCnt++ == 0) ? "WHERE" : "AND"); // Add the proper keyword
 
             BuildKeyCompare(sbFetch, srcTable, "SRC", keyColNames, "lk", keyColNames.Count, false);
+
+            //  Check for an "AndWhere" clause
+            //
+            if (!string.IsNullOrEmpty(AndWhere))
+            {
+                sbFetch.AppendFormat("\n      {0}{0} ({1})  \n", 
+                    (whereCnt++ == 0) ? "WHERE" : "AND"
+                    , AndWhere); // Add the proper keyword
+            }
 
             FetchBatchSql = sbFetch.ToString(); // Save the row fetch query
 
