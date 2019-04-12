@@ -169,7 +169,7 @@ namespace DBBackfill
                                     COALESCE(IDC.is_descending_key , 0) AS is_descending_key,
                                     COALESCE(IDC.partition_ordinal, 0) AS partition_ordinal
                                     ,DENSE_RANK() OVER ( PARTITION BY TBL.[object_id] ORDER BY IDX.is_unique DESC, IDX.index_id ) AS IndexPriority
-	                         FROM (sys.tables TBL 
+	                         FROM (sys.objects TBL 
 		                        INNER JOIN sys.columns COL ON (TBL.[object_id] = COL.[object_id]))
 		                        LEFT OUTER JOIN 
 	                                (sys.indexes IDX
@@ -177,6 +177,7 @@ namespace DBBackfill
                                             ON ( IDX.[object_id] = IDC.[object_id] ) AND ( IDX.[index_id] = IDC.[index_id] )
                                     )
 						        ON (TBL.[object_id] = IDX.[object_id] ) AND (COL.column_id = IDC.column_id)
+                            WHERE (TBL.[type] IN ('U','V'))
                         ) IDXC2				
              )
 
@@ -198,7 +199,7 @@ namespace DBBackfill
                         COALESCE(IDXC.key_ordinal, 0) AS key_ordinal ,
                         COALESCE(IDXC.is_descending_key, 0) AS is_descending_key ,
                         COALESCE(IDXC.partition_ordinal, 0) AS partition_ordinal 
-               FROM     sys.tables TAB
+               FROM     sys.objects TAB
                         INNER JOIN sys.schemas SCH ON ( TAB.[schema_id] = SCH.[schema_id] )
                         INNER JOIN sys.indexes IDX ON ( TAB.[object_id] = IDX.[object_id] )
                         INNER JOIN sys.columns IC ON ( TAB.[object_id] = IC.[object_id] )
@@ -209,6 +210,7 @@ namespace DBBackfill
                WHERE    ( TAB.is_ms_shipped = 0 )
                         AND ( IDX.[type] IN ( 0, 1, 5 ) )
 						AND (IDXC.ColPrio = 1)
+                        AND (TAB.[type] IN ('U', 'V'))
 
                ORDER BY SchemaName ,
                         TableName ,

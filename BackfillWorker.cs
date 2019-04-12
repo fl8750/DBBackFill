@@ -32,8 +32,8 @@ namespace DBBackfill
 
             //  Prepare the SQL connections to the source and destination databases
             //
-            SqlConnection srcConn = BackfillCtl.OpenDB(SrcTable.InstanceName, connectTimeout, SrcTable.DbName);
-            SqlConnection dstConn = BackfillCtl.OpenDB(DstTable.InstanceName, connectTimeout, DstTable.DbName);
+            SqlConnection srcConn = BackfillCtl.OpenDB(SrcTableInfo.InstanceName, connectTimeout, SrcTableInfo.DbName);
+            SqlConnection dstConn = BackfillCtl.OpenDB(DstTableInfo.InstanceName, connectTimeout, DstTableInfo.DbName);
 
             isSameInstance = (string.Compare(srcConn.DataSource, dstConn.DataSource, StringComparison.InvariantCultureIgnoreCase) == 0);
 
@@ -53,35 +53,63 @@ namespace DBBackfill
             //
             try
             {
-                //  Start 
-                BkfCtrl.DebugOutput(string.Format("Backfill Start v{0}",
+                // ==========================================================================================
+                //
+                //  Output the start of backfill splash text
+                //
+                // ==========================================================================================
+                BkfCtrl.DebugOutput(string.Format("{0,20}: {1}",
+                        "Backfill Version",
                         this.BkfCtrl.Version
                        ));
 
-                BkfCtrl.DebugOutput(string.Format("Source table: [{0}].[{1}].{2}",
-                        SrcTable.InstanceName,
-                        SrcTable.DbName,
-                        SrcTable.FullTableName
+                BkfCtrl.DebugOutput(string.Format("{0,20}: [{1}].[{2}].{3}",
+                        "Source table",
+                        SrcTableInfo.InstanceName,
+                        SrcTableInfo.DbName,
+                        SrcTableInfo.FullTableName
                        ));
 
-                BkfCtrl.DebugOutput(string.Format("Destination table: [{0}].[{1}].{2}",
-                        DstTable.InstanceName,
-                        DstTable.DbName,
-                        DstTable.FullTableName
+                BkfCtrl.DebugOutput(string.Format("{0,20}: [{1}].[{2}].{3}",
+                        "Destination table", 
+                        DstTableInfo.InstanceName,
+                        DstTableInfo.DbName,
+                        DstTableInfo.FullTableName
                        ));
 
-                //  Show the rowcount
-                BkfCtrl.DebugOutput(string.Format(" Fill Type: {0}",
+                //  Show the Fill Type
+                BkfCtrl.DebugOutput(string.Format("{0,20}: {1}",
+                    "Fill Type",
                     FillType.ToString()
                 ));
 
                 //  Show the rowcount
-                BkfCtrl.DebugOutput(string.Format("      Rows: {0:#,##0}  BatchChunkSize: {1:#,##0}  Partitions(#/>0): {2:#,##0}/{3:#,##0}",
-                    SrcTable.RowCount,
-                    batchSize,
-                    SrcTable.PtCount, SrcTable.PtNotEmpty.Count
+                BkfCtrl.DebugOutput(string.Format("{0,20}: {1:#,##0}",
+                    "Total Rows",
+                    SrcTableInfo.RowCount
                 ));
 
+                //  Show the Batch chunk size
+                BkfCtrl.DebugOutput(string.Format("{0,20}: {1:#,##0}",
+                    "BatchChunkSize",
+                    batchSize
+                ));
+
+                //  Show the Partition Counts
+                BkfCtrl.DebugOutput(string.Format("Partitions(#/>0): {1:#,##0} / {2:#,##0}",
+                    "Partition Count",
+                    SrcTableInfo.PtCount, SrcTableInfo.PtNotEmpty.Count
+                ));
+
+                // ==========================================================================================
+                //
+                //  End of backfill splash text
+                //
+                // ==========================================================================================
+
+                //
+                //  Backfill Data Pump
+                //
                 if (FillType != BackfillType.BulkInsert)
                     PrepareWorker(srcConn, dstConn, dstKeyNames); // Setup the needed SQL environment
 
@@ -96,9 +124,9 @@ namespace DBBackfill
                     // If the selected partition does exists then start at the next highest or the last
                     //
                     BkfCtrl.DebugOutput(string.Format("      Restart partition: {0}", fkb.RestartPartition));
-                    for (ptIdx = 0; ptIdx < SrcTable.PtNotEmpty.Count; ptIdx++)
+                    for (ptIdx = 0; ptIdx < SrcTableInfo.PtNotEmpty.Count; ptIdx++)
                     {
-                        if (SrcTable.PtNotEmpty[ptIdx].PartitionNumber >= fkb.RestartPartition)
+                        if (SrcTableInfo.PtNotEmpty[ptIdx].PartitionNumber >= fkb.RestartPartition)
                             break;
                     }
 
@@ -115,9 +143,9 @@ namespace DBBackfill
                 //  Partition Loop -- Once per partition
                 //
                 // ----------------------------------------------------------------------------------------
-                for (; ptIdx < ((fkb.FlgSelectByPartition) ? SrcTable.PtNotEmpty.Count : 1); ptIdx++)
+                for (; ptIdx < ((fkb.FlgSelectByPartition) ? SrcTableInfo.PtNotEmpty.Count : 1); ptIdx++)
                 {
-                    int curPartition = SrcTable.PtNotEmpty[ptIdx].PartitionNumber;    // Current partition number
+                    int curPartition = SrcTableInfo.PtNotEmpty[ptIdx].PartitionNumber;    // Current partition number
 
                     //
                     //  Main Data Pump loop
@@ -136,7 +164,7 @@ namespace DBBackfill
                             using (SqlCommand cmdSrcDb = new SqlCommand("", srcConn)) // Source database command
                             {
                                 fkb.BuildFetchQuery(cmdSrcDb,
-                                    SrcTable,
+                                    SrcTableInfo,
                                     batchSize,
                                     curPartition,
                                     ((fetchCountSinceStart == 0) && (fkb.StartKeyList.Count > 0)),
@@ -165,7 +193,7 @@ namespace DBBackfill
                                         string pName = string.Format("@lk{0}", idx + 1);
                                         if (!cmdSrcDb.Parameters.Contains(pName))
                                         {
-                                            SqlDbType dbType = (SqlDbType)Enum.Parse(typeof(SqlDbType), SrcTable[srcKeyNames[idx]].Datatype, true);
+                                            SqlDbType dbType = (SqlDbType)Enum.Parse(typeof(SqlDbType), SrcTableInfo[srcKeyNames[idx]].Datatype, true);
                                             cmdSrcDb.Parameters.Add(pName, dbType);
                                         }
 
@@ -220,7 +248,7 @@ namespace DBBackfill
                                     curMergeCount = 0;
                                     if ((FillType == BackfillType.BulkInsert) /* || (FillType == BackfillType.BulkInsertMerge) */)
                                     {
-                                        BulkInsertIntoTable(srcDt, trnMerge, dstConn, DstTable.FullTableName, fkb.FKeyCopyCols, BkfCtrl.CommandTimeout);
+                                        BulkInsertIntoTable(srcDt, trnMerge, dstConn, DstTableInfo.FullTableName, fkb.FKeyCopyCols, BkfCtrl.CommandTimeout);
                                         //BulkInsertIntoTable(srcDt, trnMerge, dstConn, DstTable.FullTableName, CopyColNames);
                                         curMergeCount = srcDt.Rows.Count;
                                     }
@@ -290,7 +318,7 @@ namespace DBBackfill
                             BkfCtrl.DebugOutput(string.Format("-- [{7}:{8}] F:{0:#,##0}/{1:#,##0}/{2:#,##0} M:{3:#,##0}/{4:#,##0} {5}/{6}",
                                 curFetchCount,
                                 FetchRowCount,
-                                DstTable.RowCount,
+                                DstTableInfo.RowCount,
                                 curMergeCount,
                                 MergeRowCount,
                                 ((currentFKeyList != null) && (currentFKeyList.Count > 0)) ? currentFKeyList[0].ToString() : "---",
@@ -374,7 +402,7 @@ namespace DBBackfill
                                         int cmdTimeout)
         {
             SqlBulkCopyOptions bcpyOpts = SqlBulkCopyOptions.KeepNulls | SqlBulkCopyOptions.CheckConstraints | SqlBulkCopyOptions.FireTriggers ;
-            if (DstTable.HasIdentity) bcpyOpts |= (SqlBulkCopyOptions.KeepIdentity);  // Enable IDENTITY INSERT if the destination table has an IDENTITY column
+            if (DstTableInfo.HasIdentity) bcpyOpts |= (SqlBulkCopyOptions.KeepIdentity);  // Enable IDENTITY INSERT if the destination table has an IDENTITY column
 
             using (SqlBulkCopy bulkCopy = new SqlBulkCopy(dstConn, bcpyOpts, trnActive))
             {
@@ -387,7 +415,7 @@ namespace DBBackfill
                     //
                     foreach (TableColInfo ccn in copyCols)
                     {
-                        TableColInfo tci = DstTable[ccn.Name];
+                        TableColInfo tci = DstTableInfo[ccn.Name];
                         if (tci.IsIncluded)
                         {
                             SqlBulkCopyColumnMapping newCMap = new SqlBulkCopyColumnMapping(tci.Name, tci.Name);
@@ -455,8 +483,8 @@ namespace DBBackfill
                                  //   {6} ALTER TABLE {2} ADD [__ROWS__] INT NOT NULL";
 
                 string sqlCreateWTab = string.Format(strCreateWTab,
-                    DstTable.DbName,
-                    DstTable.FullTableName,
+                    DstTableInfo.DbName,
+                    DstTableInfo.FullTableName,
                     DstTempFullTableName,
                     TempSchemaName,
                     DstTempTableName,
@@ -498,13 +526,13 @@ namespace DBBackfill
         TRUNCATE TABLE {1}
         COMMIT TRANSACTION;
         SELECT @delCount AS [_DelCount_], @insCount AS [_InsCount_];",
-                DstTable.DbName,
+                DstTableInfo.DbName,
                 DstTempFullTableName,
-                DstTable.FullTableName,
-                (DstTable.HasIdentity) ? "" : "-- ",
-                string.Join(" AND ", dstKeyNames.Where(kc => (SrcTable[kc].IsComparable)).Select(kc => string.Format("(SRC.{0} = DST.{0})", DstTable[kc].NameQuoted)).ToArray()),
-                string.Join(", ", CopyColNames.Select(dc => SrcTable[dc].NameQuoted).ToArray()),
-                string.Join(", ", CopyColNames.Select(sd => string.Format("SRC.{0}", SrcTable[sd].NameQuoted)).ToArray()),
+                DstTableInfo.FullTableName,
+                (DstTableInfo.HasIdentity) ? "" : "-- ",
+                string.Join(" AND ", dstKeyNames.Where(kc => (SrcTableInfo[kc].IsComparable)).Select(kc => string.Format("(SRC.{0} = DST.{0})", DstTableInfo[kc].NameQuoted)).ToArray()),
+                string.Join(", ", CopyColNames.Select(dc => SrcTableInfo[dc].NameQuoted).ToArray()),
+                string.Join(", ", CopyColNames.Select(sd => string.Format("SRC.{0}", SrcTableInfo[sd].NameQuoted)).ToArray()),
                 (FillType == BackfillType.GapFill) ? "SRC" : "DST"
                 );
 

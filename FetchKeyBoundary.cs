@@ -35,7 +35,7 @@ SELECT  {1}
         //
         private string strFetchRows = @"
 SELECT  {1}
-    FROM {0} SRC
+    FROM {0} SRC {3}
 {2}
 ";
 
@@ -97,13 +97,15 @@ SELECT  {1}
             //  Build the WHERE clause
             //
             int whereCnt = 0; // Number of generated WHERE clauses
+
             StringBuilder sbWhere = new StringBuilder();
 
             //  If required, fetch rows from each partition individually (performance)
             //
             if ((FlgSelectByPartition) && (srcTable.PtFunc != null))
             {
-                sbWhere.AppendFormat("\n                    WHERE ($PARTITION.[{0}]({1}) = {2}) \n                    ",
+                sbWhere.AppendFormat("\n                    {0} ($PARTITION.[{1}]({2}) = {3}) \n                    ",
+                    (whereCnt++ == 0) ? "WHERE" : "AND",
                     srcTable.PtFunc,
                     srcTable.PtCol.NameQuoted,
                     curPtNumber);
@@ -135,7 +137,7 @@ SELECT  {1}
                     string pName = string.Format("@ek{0}", idx + 1);
                     if (!srcCmd.Parameters.Contains(pName))
                     {
-                        SqlDbType dbType = (SqlDbType) Enum.Parse(typeof(SqlDbType), srcTable[keyColNames[idx]].Datatype, true);
+                        SqlDbType dbType = (SqlDbType)Enum.Parse(typeof(SqlDbType), srcTable[keyColNames[idx]].Datatype, true);
                         srcCmd.Parameters.Add(pName, dbType);
                     }
 
@@ -166,8 +168,8 @@ SELECT  {1}
                 srcTable.FullTableName,
                 string.Join(
                     ", \n        ",
-                    FKeyCopyCols.Select(col => string.Concat(col.LoadExpression.Replace("[__X__]", String.Concat("SRC.", (object)col.NameQuoted)), 
-                                            " AS ", 
+                    FKeyCopyCols.Select(col => string.Concat(col.LoadExpression.Replace("[__X__]", String.Concat("SRC.", (object)col.NameQuoted)),
+                                            " AS ",
                                             col.NameQuoted))
                                 .ToArray()),
                 (RLConfigured != RLType.NoRelationSet)
@@ -175,8 +177,9 @@ SELECT  {1}
                         RLTable.FullTableName,
                         RLSrcTableCol.NameQuoted,
                         RLTableCol.NameQuoted,
-                        (RLConfigured== RLType.InnerJoin) ? "INNER" : "LEFT OUTER")
-                    : ""
+                        (RLConfigured == RLType.InnerJoin) ? "INNER" : "LEFT OUTER")
+                    : "",
+                (String.IsNullOrEmpty(TableHint)) ? "" : "WITH (" + TableHint + ")"
             );
 
 
@@ -209,7 +212,7 @@ SELECT  {1}
                     string pName = string.Format("@sk{0}", idx + 1);
                     if (!srcCmd.Parameters.Contains(pName))
                     {
-                        SqlDbType dbType = (SqlDbType) Enum.Parse(typeof(SqlDbType), srcTable[keyColNames[idx]].Datatype, true);
+                        SqlDbType dbType = (SqlDbType)Enum.Parse(typeof(SqlDbType), srcTable[keyColNames[idx]].Datatype, true);
                         srcCmd.Parameters.Add(pName, dbType);
                     }
 
@@ -240,11 +243,11 @@ SELECT  {1}
         //  Build the logical expression use in the WHERE clause when comparing the key fields of rin/out of range
         //
         private void BuildKeyCompare(StringBuilder sbOut, TableInfo srcTable, string srcTableAlias,
-                                        List<string> keyColNames, string keyPrefix, int keyValueCount, 
+                                        List<string> keyColNames, string keyPrefix, int keyValueCount,
                                         bool isLowerLimit, bool isFirstFetch = false)
         {
             // Construct the logical clauses to mark the beginning of the fetch range
-            sbOut.Append("        ("); 
+            sbOut.Append("        (");
             for (int oidx = keyValueCount; oidx > 0; oidx--)
             {
                 if (keyValueCount > 1) sbOut.Append("(");
@@ -294,102 +297,6 @@ SELECT  {1}
             : base(srcTable, keyColNames)
         {
         }
-    }
-
-
-
-    // ==================================================================================================
-    //
-    //  Helper Class -- FetchKeyBoundary
-    //
-    // ==================================================================================================
-    public static class FetchKeyHelpers
-    {
-        public static FetchKeyBoundary CreateFetchKeyComplete(this TableInfo srcTable, string keyColName = null)
-        {
-            return CreateFetchKeyComplete(srcTable, keyColName?.Split(',').ToList());
-        }
-
-        public static FetchKeyBoundary CreateFetchKeyComplete(this TableInfo srcTable, List<string> keyColNames)
-        {
-            if (keyColNames == null)
-            {
-                keyColNames = srcTable.Where(kc => kc.KeyOrdinal > 0).OrderBy(kc => kc.KeyOrdinal).Select(kc => kc.Name).ToList();
-            }
-            
-            FetchKeyBoundary newFKB = new FetchKeyBoundary(srcTable, keyColNames);
-
-            //  Check for any partitioning performance problems
-            //
-            if ((srcTable.IsPartitioned) && (srcTable.PtCol.ID == srcTable[keyColNames[0]].ID))
-            {
-                newFKB.FlgSelectByPartition = true;
-            }
-
-            return newFKB;
-        }
-
-
-        //public static FetchKeyBoundary CreateFetchKeyBoundary(this TableInfo srcTable, string keyColName, string whereClause)
-        //{
-        //    //TODO: Add multi-column key support
-
-        //    FetchKeyBoundary newFKB = null;
-
-        //    string qryGetKeyLimits = @"
-        //        SELECT MIN(SRC.{0}) AS MinKey, 
-        //               MAX(SRC.{0}) AS MaxKey
-        //            FROM {1} SRC
-        //            {2}";
-
-        //    using (SqlConnection srcConn = BackfillCtl.OpenDB(srcTable.InstanceName, srcTable.DbName))
-        //    {
-        //        string strKeyQuery = string.Format(qryGetKeyLimits,
-        //            srcTable[keyColName].NameQuoted,
-        //            srcTable.FullTableName,
-        //            (string.IsNullOrEmpty(whereClause)) ? "" : ("WHERE " + whereClause));
-        //        using (SqlCommand cmdKeys = new SqlCommand(strKeyQuery, srcConn))
-        //        {
-        //            cmdKeys.CommandTimeout = 300; // timeout in seconds
-        //            DataTable dtKeys = new DataTable();
-        //            using (SqlDataReader rdrKeys = cmdKeys.ExecuteReader())
-        //            {
-        //                dtKeys.Load(rdrKeys);
-        //            }
-
-        //            if (dtKeys.Rows.Count > 0)
-        //            {
-        //                newFKB = new FetchKeyBoundary(srcTable, new List<string>() { keyColName });
-        //                if (dtKeys.Rows[0]["MinKey"].GetType().Name != "DBNull") newFKB.StartKeyList.Add(dtKeys.Rows[0]["MinKey"]);
-        //                if (dtKeys.Rows[0]["MaxKey"].GetType().Name != "DBNull") newFKB.EndKeyList.Add(dtKeys.Rows[0]["MaxKey"]);
-        //            }
-        //        }
-        //        BackfillCtl.CloseDb(srcConn); // Close the DB connection
-        //    }
-        //    return newFKB;
-        //}
-
-        ///// <summary>
-        ///// Create a single column boundary set
-        ///// </summary>
-        ///// <param name="srcTable">Reference to TableInfo object of the source table</param>
-        ///// <param name="keyColName">Key column name</param>
-        ///// <param name="minKey">Start value</param>
-        ///// <param name="maxKey">Final value</param>
-        ///// <returns></returns>
-        //public static FetchKeyBoundary CreateFetchKeyBoundary(this TableInfo srcTable, string keyColName, object minKey, object maxKey)
-        //{
-        //    //TODO: Add multi-column key support
-
-        //    FetchKeyBoundary newFKB = null;
-
-        //    newFKB = new FetchKeyBoundary(srcTable, new List<string>(){ keyColName });
-        //    if ((minKey != null) && (minKey.GetType().Name != "DBNull")) newFKB.StartKeyList.Add(minKey);
-        //    if ((maxKey != null) && (maxKey.GetType().Name != "DBNull")) newFKB.StartKeyList.Add(maxKey);
-
-        //    return newFKB;
-        //}
-
     }
 
 }

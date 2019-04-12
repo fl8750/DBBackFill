@@ -23,30 +23,45 @@ namespace DBBackfill
         //  Execution control
         //
         public BackfillType FillType = BackfillType.Merge; // Backfill strategy
-        public bool MergeDirect = false; // If true, fetch source rows diretly else fetch to temp table
-
-        //  Data source information
-        //
-       // public SqlConnection SrcConn;
-        public TableInfo SrcTable { get; private set; }
-        public List<string> SrcKeyNames = new List<string>();
-        public List<string> CopyColNames = new List<string>();
-
-        //  Data destination Information
-        //
-        //public SqlConnection DstConn;
-        public TableInfo DstTable { get; private set; }
-        public List<string> DstKeyNames = new List<string>();
-
-        public bool IsSrcDstEqual {
-            get { return ((SrcTable.InstanceName == DstTable.InstanceName) && (SrcTable.DbName == DstTable.DbName)); }
-        }
-
-        //  Work totals
         //
         public int FetchLoopCount = 0; // Number of completed fetchs
         public Int64 FetchRowCount = 0; // Total number of rows feched
         public Int64 MergeRowCount = 0; // Total number of rows inserted into the dest table
+
+
+        //  Data source information
+        //
+        public string SrcInstName { get; private set; } // Name of the source instance
+        public string SrcDbName { get; private set; } // Name of the source database
+        public string SrcSchemaName { get; private set; } // Name of the source schema
+        public string SrcObjectName { get; private set; } // Name of the source table
+
+        public string SrcPartitionFunc { get; private set; } // Name of the partition function controlling the source table
+
+        public TableInfo SrcTableInfo { get; private set; }
+        public List<string> SrcKeyNames = new List<string>();
+        public List<string> CopyColNames = new List<string>();
+
+
+        //  Data destination Information
+        //
+        public string DstInstName { get; private set; } // Name of the destination instance
+        public string DstDbName { get; private set; } // Name of the destination database
+        public string DstSchemaName { get; private set; } // Name of the destination schema
+        public string DstObjectName { get; private set; } // Name of the destination table        
+
+        public TableInfo DstTableInfo { get; private set; }
+        public List<string> DstKeyNames = new List<string>();
+
+
+        //
+        //  Properties
+        //
+        public bool IsSrcDstEqual
+        {
+            get { return ((SrcTableInfo.InstanceName == DstTableInfo.InstanceName) && (SrcTableInfo.DbName == DstTableInfo.DbName)); }
+        }
+
 
         //  Standard Query text
         //
@@ -65,20 +80,30 @@ namespace DBBackfill
         {
             get
             {
-                return string.Format("{0}_{1}_{2}_{3}_{4}", BkfCtrl.SessionName, SrcTable.InstanceName.Replace('\\', '_'), SrcTable.DbName, SrcTable.SchemaName, SrcTable.TableName);
+                return string.Format("{0}_{1}_{2}_{3}_{4}", BkfCtrl.SessionName, SrcTableInfo.InstanceName.Replace('\\', '_'), SrcTableInfo.DbName, SrcTableInfo.SchemaName, SrcTableInfo.TableName);
             }
         }
 
         public string DstTempFullTableName
         {
-            //get { return DstTempTableName; }
             get
             {
                 return IsSrcDstEqual
                     ? string.Format("[#{0}]", DstTempTableName)
-                    : string.Format("[{1}].[dbo].[{0}]", DstTempTableName, DstTable.DbName);
+                    : string.Format("[{1}].[dbo].[{0}]", DstTempTableName, DstTableInfo.DbName);
             }
         }
+
+
+        //
+        //  Methods: Pre-Backfill Preparation
+        //
+        public void OpenSrcInst (string instName)
+        {
+
+        }
+    
+
 
 
         //
@@ -134,8 +159,8 @@ namespace DBBackfill
 
             //  Identify the default columns used for unique row indexing
             //
-            SrcTable = srcTable;
-            DstTable = dstTable;
+            SrcTableInfo = srcTable;
+            DstTableInfo = dstTable;
 
             SrcKeyNames = srcTable.Where(cl => (cl.KeyOrdinal > 0)).OrderBy<TableColInfo, int>(cl => cl.KeyOrdinal).Select(cl => cl.Name).ToList();
             DstKeyNames = dstTable.Where(cl => (cl.KeyOrdinal > 0)).OrderBy(cl => cl.KeyOrdinal).Select(cl => cl.Name).ToList();

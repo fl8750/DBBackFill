@@ -49,7 +49,8 @@ namespace DBBackfill
 
         //  Backfill 
         //
-        //private BackfillType _fillType;
+        public string TableHint { get; set; }
+
 
         public BackfillType FillType { get; set; }
 
@@ -137,6 +138,14 @@ namespace DBBackfill
         }
 
 
+        //
+        //  Column transfer control methods
+        //
+        /// <summary>
+        /// Add a calculated column to the backfill output table
+        /// </summary>
+        /// <param name="newCol">New column name</param>
+        /// <param name="loadExpression">T-SQL expression</param>
         public void AddFetchCol(TableColInfo newCol, string loadExpression)
         {
             if (!FKeyCopyCols.Exists(dc => (dc.Name == newCol.Name)))
@@ -147,12 +156,31 @@ namespace DBBackfill
         }
 
 
-
+        /// <summary>
+        /// Modify the transferred contents of a source column when transferred to the output table
+        /// </summary>
+        /// <param name="colName">Existing source column name</param>
+        /// <param name="loadExpression">T-SQL Expression</param>
         public void ModifyFetchCol(string colName, string loadExpression)
         {
             if (FKeyCopyCols.Exists(dc => (dc.Name == colName)))
             {
                 FKeyCopyCols.Find(dc => dc.Name == colName).LoadExpression = loadExpression;  // Add the load expression needed to load data not in the src table
+            }
+            else
+                throw new ApplicationException($"Cannot find existing source column:'{colName}'");
+        }
+
+
+        /// <summary>
+        /// Ignore a source column and do not transfer it to the output table
+        /// </summary>
+        /// <param name="colName">Existing source table column name</param>
+        public void IgnoreFetchCol(string colName)
+        {
+            if (FKeyCopyCols.Exists(dc => (dc.Name == colName)))
+            {
+                FKeyCopyCols.Remove(FKeyCopyCols.Find(dc => dc.Name == colName));  // Remove the column from the copy col list         
             }
             else
                 throw new ApplicationException($"Cannot find existing source column:'{colName}'");
@@ -181,9 +209,6 @@ namespace DBBackfill
                             .Where(col => !col.Value.Ignore)
                             .OrderBy(col => col.Value.ID)
                             .Select(sc => sc.Value).ToList();
-                //      .Select(col => string.IsNullOrEmpty(col.Value.LoadExpression)
-                //                    ? String.Concat("SRC.", (object)col.Value.NameQuoted)
-                //                    : String.Concat(col.Value.LoadExpression, " AS ", col.Value.NameQuoted))
 
 
             FlgRestart = false; // Assume no restart at this point

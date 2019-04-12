@@ -9,7 +9,7 @@ using System.Linq;
 namespace DBBackfill
 {
 
-    public class BackfillCtl 
+    public class BackfillCtl
     {
         //  Private 
         //
@@ -48,19 +48,19 @@ namespace DBBackfill
         public int Debug { get; set; }
         public bool DebugToConsole { get; set; }
         private string _debugFile = string.Empty;   // Path to debug file, if one is required
- 
+
 
         //
         //  Methods -- Database connections
         //
         static public SqlConnection OpenDB(string dbServer, int connectTimeout, string dbDbName = "master")
         {
-            string connString = string.Format("server={0};database={1};Connection Timeout={2};trusted_connection=true", 
-                dbServer, 
-                dbDbName, 
+            string connString = string.Format("server={0};database={1};Connection Timeout={2};trusted_connection=true",
+                dbServer,
+                dbDbName,
                 connectTimeout);
             SqlConnection dbConn = new SqlConnection(connString);
-            dbConn.Open();         
+            dbConn.Open();
             return dbConn;
         }
 
@@ -122,18 +122,19 @@ namespace DBBackfill
                                  List<string> srcKeyNames = null,
                                  List<string> dstKeyNames = null)
         {
-            BackfillContext bfCtx = new BackfillContext(this, srcTable, dstTable, copyColNames);
             if (fkb == null)
             {
                 fkb = srcTable.CreateFetchKeyComplete(srcKeyNames);  // If no FetchKey specified, assume a full table scan
             }
+            // BackfillContext bfCtx = new BackfillContext(this, srcTable, dstTable, copyColNames);
+            BackfillContext bfCtx = new BackfillContext(this, srcTable, dstTable, fkb.FKeyCopyCols.Select(col => col.Name).ToList());
 
             bfCtx.FillType = fkb.FillType;
             bfCtx.BackfillData(fkb, batchSize, bfCtx.BkfCtrl.CommandTimeout, srcKeyNames ?? fkb.FKeyColNames, dstKeyNames);
             bfCtx.Dispose();
         }
 
- 
+
         public void BackfillData(FetchKeyBoundary fkb,
                                  TableInfo dstTable,
                                  int batchSize,
@@ -194,7 +195,7 @@ namespace DBBackfill
         }
 
 
-        
+
         // =======================================================================================
         //
         //  Constructor
@@ -212,7 +213,7 @@ namespace DBBackfill
             CommandTimeout = 600;
         }
 
-        public BackfillCtl() {}
+        public BackfillCtl() { }
     }
 
 }
