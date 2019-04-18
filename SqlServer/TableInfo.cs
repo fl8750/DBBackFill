@@ -37,6 +37,7 @@ namespace DBBackfill
         { get { return string.Format("{0}.{1}", SchemaNameQuoted, TableNameQuoted); } }
 
         public int ObjectId { get; internal set; }
+        public string ObjectType { get; internal set; }
         public Int64 RowCount { get; set; }
 
         public bool HasIdentity { get; internal set; }
@@ -95,13 +96,14 @@ namespace DBBackfill
         //
         //  Constructors
         //
-        public TableInfo( SqlConnection dbConn, string instanceName, string dbName, string schemaName, string tableName, int objectId)
+        public TableInfo( SqlConnection dbConn, string instanceName, string dbName, string schemaName, string tableName, int objectId, string objType)
         {
             InstanceName = instanceName;
             DbName = dbName;
             SchemaName = schemaName;
             TableName = tableName;
             ObjectId = objectId;
+            ObjectType = objType;
             HasIdentity = false; // Assume no identity column
             IsPartitioned = false;  // Assume no partitioning
             Locked = true;
@@ -283,7 +285,8 @@ namespace DBBackfill
                         {
                             string schemaName = (string) dr["SchemaName"];
                             string tableName = (string) dr["TableName"];
-                            curTbl = new TableInfo(dbConn, dbConn.DataSource, dbName, schemaName, tableName, objectID);
+                            string ObjType = (string)dr["ObjType"];
+                            curTbl = new TableInfo(dbConn, dbConn.DataSource, dbName, schemaName, tableName, objectID, objType);
                             _tables.Add(curTbl.ObjectId, curTbl);
                         }
 

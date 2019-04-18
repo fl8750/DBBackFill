@@ -426,11 +426,26 @@ namespace DBBackfill
                     bulkCopy.WriteToServer(srcDt); // Write from the source to the destination.
                     return srcDt.Rows.Count;
                 }
-                catch (Exception bulkCopyEx)
+                catch (Exception ex)
                 {
+                    Exception ex2 = ex;
+
+                    if (ex2.GetType().Name != typeof(ApplicationException).Name)
+                    {
+                        BkfCtrl.CapturedException = ex; // Save the exception information 
+                        int exNest = 0;
+                        while (ex2 != null)
+                        {
+                            BkfCtrl.DebugOutput(string.Format("Exception: [{0}] {1}", exNest, ex2.Message));
+                            BkfCtrl.DebugOutput(string.Format("Exception: [{0}] {1}", exNest, ex2.StackTrace));
+                            ex2 = ex2.InnerException;
+                            ++exNest;
+                        }
+                        throw new ApplicationException("Worker Error: ", ex);
+                    }
                     //BkfCtrl.DebugOutput(string.Format("Exception: {0}", bulkCopyEx.Message));
                     //BkfCtrl.DebugOutput(string.Format("Exception: {0}", bulkCopyEx.StackTrace));
-                    throw new ApplicationException("BulkInsertIntoTable: ", bulkCopyEx);
+                    //throw new ApplicationException("BulkInsertIntoTable: ", bulkCopyEx);
                 }
             }
         }

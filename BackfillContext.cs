@@ -37,6 +37,10 @@ namespace DBBackfill
         public string SrcObjectName { get; private set; } // Name of the source table
 
         public string SrcPartitionFunc { get; private set; } // Name of the partition function controlling the source table
+        public string SrcPartitionColName { get; private set; } // Source table column name used for partitioning 
+
+        public string SrcAndWhere { get; set; } // Optional WHERE clause to be applied on each row fetch operation
+
 
         public TableInfo SrcTableInfo { get; private set; }
         public List<string> SrcKeyNames = new List<string>();
@@ -65,8 +69,9 @@ namespace DBBackfill
 
         //  Standard Query text
         //
-        public string QryDataFetch = String.Empty; // Query to fetch data from the source table
-        public string QryDataMerge = String.Empty; // Query to merge data from the temp table to the destination table
+        public string QryKeyFetch { get; }  // Query to fetch key boundary for the subsequent row fetch from the source table
+        public string QryDataFetch { get; }  // Query to fetch data from the source table
+        public string QryDataMerge { get; }  // Query to merge data from the temp table to the destination table
 
         //
         //  Work temp table properties
