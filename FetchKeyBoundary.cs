@@ -239,7 +239,7 @@ SELECT  {1}
             //
             if (!string.IsNullOrEmpty(AndWhere))
             {
-                sbFetch.AppendFormat("\n      {0}{0} ({1})  \n", 
+                sbFetch.AppendFormat("\n      {0} ({1})  \n", 
                     (whereCnt++ == 0) ? "WHERE" : "AND"
                     , AndWhere); // Add the proper keyword
             }

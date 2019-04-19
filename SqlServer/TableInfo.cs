@@ -285,7 +285,8 @@ namespace DBBackfill
                         {
                             string schemaName = (string) dr["SchemaName"];
                             string tableName = (string) dr["TableName"];
-                            string ObjType = (string)dr["ObjType"];
+                            string objType = "U";
+                            //string objType = (string)dr["ObjType"];
                             curTbl = new TableInfo(dbConn, dbConn.DataSource, dbName, schemaName, tableName, objectID, objType);
                             _tables.Add(curTbl.ObjectId, curTbl);
                         }

@@ -69,9 +69,9 @@ namespace DBBackfill
 
         //  Standard Query text
         //
-        public string QryKeyFetch { get; }  // Query to fetch key boundary for the subsequent row fetch from the source table
-        public string QryDataFetch { get; }  // Query to fetch data from the source table
-        public string QryDataMerge { get; }  // Query to merge data from the temp table to the destination table
+        public string QryKeyFetch { get; set; }  // Query to fetch key boundary for the subsequent row fetch from the source table
+        public string QryDataFetch { get; set; }  // Query to fetch data from the source table
+        public string QryDataMerge { get; set; }  // Query to merge data from the temp table to the destination table
 
         //
         //  Work temp table properties

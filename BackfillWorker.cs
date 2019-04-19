@@ -394,14 +394,14 @@ namespace DBBackfill
         //
         //  Bulk Import a DataTable into a destination table
         //
-        private int BulkInsertIntoTable(DataTable srcDt, 
-                                        SqlTransaction trnActive, 
-                                        SqlConnection dstConn, 
-                                        string destTableName, 
+        private int BulkInsertIntoTable(DataTable srcDt,
+                                        SqlTransaction trnActive,
+                                        SqlConnection dstConn,
+                                        string destTableName,
                                         List<TableColInfo> copyCols,
                                         int cmdTimeout)
         {
-            SqlBulkCopyOptions bcpyOpts = SqlBulkCopyOptions.KeepNulls | SqlBulkCopyOptions.CheckConstraints | SqlBulkCopyOptions.FireTriggers ;
+            SqlBulkCopyOptions bcpyOpts = SqlBulkCopyOptions.KeepNulls | SqlBulkCopyOptions.CheckConstraints | SqlBulkCopyOptions.FireTriggers;
             if (DstTableInfo.HasIdentity) bcpyOpts |= (SqlBulkCopyOptions.KeepIdentity);  // Enable IDENTITY INSERT if the destination table has an IDENTITY column
 
             using (SqlBulkCopy bulkCopy = new SqlBulkCopy(dstConn, bcpyOpts, trnActive))
@@ -441,8 +441,8 @@ namespace DBBackfill
                             ex2 = ex2.InnerException;
                             ++exNest;
                         }
-                        throw new ApplicationException("Worker Error: ", ex);
                     }
+                    throw new ApplicationException("Worker Error: ", ex);
                     //BkfCtrl.DebugOutput(string.Format("Exception: {0}", bulkCopyEx.Message));
                     //BkfCtrl.DebugOutput(string.Format("Exception: {0}", bulkCopyEx.StackTrace));
                     //throw new ApplicationException("BulkInsertIntoTable: ", bulkCopyEx);
