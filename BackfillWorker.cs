@@ -12,6 +12,9 @@ namespace DBBackfill
 
         //  Worker properties
         //
+         
+        // A sample change
+
         public void BackfillData(FetchKeyBoundary fkb,
                                  int batchSize,
                                  int connectTimeout, 
@@ -58,48 +61,69 @@ namespace DBBackfill
                 //  Output the start of backfill splash text
                 //
                 // ==========================================================================================
+
+                //  Backfill DLL Version 
                 BkfCtrl.DebugOutput(string.Format("{0,20}: {1}",
                         "Backfill Version",
-                        this.BkfCtrl.Version
-                       ));
+                        this.BkfCtrl.Version));
 
+                //  Source table information
                 BkfCtrl.DebugOutput(string.Format("{0,20}: [{1}].[{2}].{3}",
                         "Source table",
                         SrcTableInfo.InstanceName,
                         SrcTableInfo.DbName,
-                        SrcTableInfo.FullTableName
-                       ));
+                        SrcTableInfo.FullTableName));
 
+                //  Destination table information
                 BkfCtrl.DebugOutput(string.Format("{0,20}: [{1}].[{2}].{3}",
                         "Destination table", 
                         DstTableInfo.InstanceName,
                         DstTableInfo.DbName,
-                        DstTableInfo.FullTableName
-                       ));
+                        DstTableInfo.FullTableName));
 
                 //  Show the Fill Type
                 BkfCtrl.DebugOutput(string.Format("{0,20}: {1}",
                     "Fill Type",
-                    FillType.ToString()
-                ));
+                    FillType.ToString()));
 
-                //  Show the rowcount
+                //  Show the total source table rowcount
                 BkfCtrl.DebugOutput(string.Format("{0,20}: {1:#,##0}",
                     "Total Rows",
-                    SrcTableInfo.RowCount
-                ));
+                    SrcTableInfo.RowCount));
 
                 //  Show the Batch chunk size
                 BkfCtrl.DebugOutput(string.Format("{0,20}: {1:#,##0}",
                     "BatchChunkSize",
-                    batchSize
-                ));
+                    batchSize));
 
+
+                //  Source table partitioning informaation
                 //  Show the Partition Counts
-                BkfCtrl.DebugOutput(string.Format("Partitions(#/>0): {1:#,##0} / {2:#,##0}",
-                    "Partition Count",
-                    SrcTableInfo.PtCount, SrcTableInfo.PtNotEmpty.Count
-                ));
+
+                if (fkb.FlgSelectByPartition)
+                {
+                    BkfCtrl.DebugOutput(string.Format("{0,20}: {1}",
+                        "Src Part Scheme",
+                        SrcTableInfo.PtScheme));
+
+                    BkfCtrl.DebugOutput(string.Format("{0,20}: {1} ({2})",
+                        "Src Part Function",
+                        SrcTableInfo.PtFunc,
+                        SrcTableInfo.PtCol.DatatypeFull));
+
+                    BkfCtrl.DebugOutput(string.Format("{0,20}: Total - {1:#,##0} / NonEmpty - {2:#,##0}",
+                        "Src Part Count",
+                        SrcTableInfo.PtCount,
+                        SrcTableInfo.PtNotEmpty.Count));
+                }
+                else
+                {
+                    BkfCtrl.DebugOutput(string.Format("{0,20}: {1}",
+                        "Src Part Scheme",
+                        "-- Not Used --"));
+                }
+
+
 
                 // ==========================================================================================
                 //
@@ -123,7 +147,10 @@ namespace DBBackfill
                 {
                     // If the selected partition does exists then start at the next highest or the last
                     //
-                    BkfCtrl.DebugOutput(string.Format("      Restart partition: {0}", fkb.RestartPartition));
+                    BkfCtrl.DebugOutput(string.Format("{0,20}: {1}",
+                        "Restart Partition",
+                        fkb.RestartPartition
+                    ));
                     for (ptIdx = 0; ptIdx < SrcTableInfo.PtNotEmpty.Count; ptIdx++)
                     {
                         if (SrcTableInfo.PtNotEmpty[ptIdx].PartitionNumber >= fkb.RestartPartition)
@@ -567,13 +594,13 @@ namespace DBBackfill
                     object rKey = restartKeys[rKeyNo];  // Get the next restart key
                     string rKeyType = rKey.GetType().Name;  // Get the .NET datatype
                     string rKeyValue;
-                    switch (rKey.GetType().Name)
+                    switch (rKey.GetType().Name.ToLower())
                     {
                         case "string":
                             rKeyValue = $"\"{rKey}\"";
                             break;
 
-                        case "DateTime":
+                        case "datetime":
                             rKeyValue = string.Format("\"{0}\"", ((DateTime)rKey).ToString("yyyy-MM-dd HH:mm:ss.fff"));
                             break;
 

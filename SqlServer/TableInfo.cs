@@ -42,6 +42,9 @@ namespace DBBackfill
 
         public bool HasIdentity { get; internal set; }
 
+        public bool IsTable => ObjectType == "U";
+        public bool IsView => ObjectType == "V";
+
         //  Table partitioning information
         //
         public bool IsPartitioned { get; set; }
@@ -83,7 +86,7 @@ namespace DBBackfill
         //  IEnumerable
         //
         public IEnumerator<TableColInfo> GetEnumerator()
-        {
+        { 
             return _columns.GetEnumerator();
         }
 
