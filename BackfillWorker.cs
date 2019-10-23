@@ -62,6 +62,9 @@ namespace DBBackfill
                 //
                 // ==========================================================================================
 
+                //  Phase start
+                BkfCtrl.DebugOutput(string.Format("-- Phase Start: Backfill"));
+                
                 //  Backfill DLL Version 
                 BkfCtrl.DebugOutput(string.Format("{0,20}: {1}",
                         "Backfill Version",
@@ -100,7 +103,7 @@ namespace DBBackfill
                 //  Source table partitioning informaation
                 //  Show the Partition Counts
 
-                if (fkb.FlgSelectByPartition)
+                if (SrcTableInfo.IsPartitioned)    //(fkb.FlgSelectByPartition)
                 {
                     BkfCtrl.DebugOutput(string.Format("{0,20}: {1}",
                         "Src Part Scheme",
@@ -120,7 +123,7 @@ namespace DBBackfill
                 {
                     BkfCtrl.DebugOutput(string.Format("{0,20}: {1}",
                         "Src Part Scheme",
-                        "-- Not Used --"));
+                        "-- Not Partitioned --"));
                 }
 
 
@@ -386,8 +389,10 @@ namespace DBBackfill
                         FetchLoopCount
                        ));
                 }
+                BkfCtrl.DebugOutput(string.Format("-- Phase Complete: Backfill"));
 
-                BkfCtrl.CapturedException = null;
+
+BkfCtrl.CapturedException = null;
             }
 
             catch (Exception ex)
