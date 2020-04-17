@@ -211,6 +211,7 @@ namespace DBBackfill
             FKeyCopyCols =
                 FKeySrcTable.Columns
                             .Where(col => !col.Value.Ignore)
+                            .Where(col => col.Value.IsCopyable)
                             .OrderBy(col => col.Value.ID)
                             .Select(sc => sc.Value).ToList();
 

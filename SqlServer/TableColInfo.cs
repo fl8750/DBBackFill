@@ -17,6 +17,7 @@ namespace DBBackfill
             { "TEXT", new TableColDatatype(){ConvertFormat = "CONVERT(VARCHAR(MAX), {0})"} },
             { "NTEXT", new TableColDatatype(){ConvertFormat = "CONVERT(NVARCHAR(MAX), {0})"} },
             { "XML", new TableColDatatype(){ConvertFormat = "CONVERT(NVARCHAR(MAX), {0})"} },
+            { "ROWVERSION", new TableColDatatype(){IsCopied = false, IsComparible = false} },
             { "TIMESTAMP", new TableColDatatype(){IsCopied = false, IsComparible = false} }
         };   
 

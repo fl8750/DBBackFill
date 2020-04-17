@@ -144,8 +144,8 @@ namespace DBBackfill
                 }
                 else if (!srcTable[ccName].IsCopyable)
                 {
-                    ++errCnt;
-                    Console.WriteLine("Src: {0} - Column cannot be copied '{1}'", srcTable.FullTableName, ccName);
+                    //++errCnt;
+                    Console.WriteLine("Src: {0} - Column datatype is skipped '{1}' - {2}", srcTable.FullTableName, ccName, srcTable[ccName].Datatype);
                     continue;
                 }
 
