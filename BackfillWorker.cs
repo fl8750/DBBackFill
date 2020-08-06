@@ -173,9 +173,25 @@ namespace DBBackfill
                 //  Partition Loop -- Once per partition
                 //
                 // ----------------------------------------------------------------------------------------
-                for (; ptIdx < ((fkb.FlgSelectByPartition) ? SrcTableInfo.PtNotEmpty.Count : 1); ptIdx++)
+
+                if (fkb.FlgSelectByPartition && !SrcTableInfo.IsPartitioned)
                 {
-                    int curPartition = SrcTableInfo.PtNotEmpty[ptIdx].PartitionNumber;    // Current partition number
+                    BkfCtrl.DebugOutput(string.Format("{0,20}: {1}",
+                                        "FlgSelectByPartition",
+                                        "Src Table Not Partitioned! -- Forced False"));
+                    fkb.FlgSelectByPartition = false;
+                }
+                else
+                {
+                    BkfCtrl.DebugOutput(string.Format("{0,20}: {1}",
+                                         "FlgSelectByPartition",
+                                         (fkb.FlgSelectByPartition) ? "True" : "False"));
+                }
+
+                int maxPt = (fkb.FlgSelectByPartition) ? SrcTableInfo.PtNotEmpty.Count : 1;
+                for (; ptIdx < maxPt; ptIdx++)
+                {
+                    int curPartition = (fkb.FlgSelectByPartition) ? SrcTableInfo.PtNotEmpty[ptIdx].PartitionNumber : 1;    // Current partition number
 
                     //
                     //  Main Data Pump loop

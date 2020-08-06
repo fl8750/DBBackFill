@@ -107,6 +107,13 @@ namespace DBBackfill
             if (newInst == null)
             {
                 newInst = _instances.OpenInstance(instanceName);
+                if (newInst == null)
+                {
+                    //  Destination table information
+                    DebugOutput(string.Format("{0,20}: {3}",
+                            "Unknown Instance",
+                            instanceName));
+                }
             }
         }
 
